@@ -446,4 +446,8 @@ optfile net	test/nettest.c
 file syscall/proc_syscalls.c
 file syscall/file_syscalls.c
 
+#IPT
+file vm/pt.c
+
+defoption fork
 defoption final

@@ -71,6 +71,11 @@ struct proc {
 	struct vnode *p_cwd;		/* current working directory */
 
 	/* add more material here as needed */
+        /* G.Cabodi - 2019 - implement waitpid: synchro, and exit status */
+        int p_status;                   /* status as obtained by exit() */
+        pid_t p_pid;                    /* process pid */
+        struct cv *p_cv;
+        struct lock *lock;
 };
 
 /* This is the process structure for the kernel and for kernel-only threads. */
@@ -97,5 +102,9 @@ struct addrspace *proc_getas(void);
 /* Change the address space of the current process, and return the old one. */
 struct addrspace *proc_setas(struct addrspace *);
 
+/* wait for process termination, and return exit status */
+int proc_wait(struct proc *proc);
+/* get proc from pid */
+struct proc *proc_search_pid(pid_t pid);
 
 #endif /* _PROC_H_ */

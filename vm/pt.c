@@ -163,7 +163,37 @@ void freePages(pid_t pid){  // frees all pages from PT and the list using pid
 void freeContiguousPages(vaddr_t addr){
     int i, index, n_contig_pages;
 
+    paddr_t test = KVADDR_TO_PADDR(addr);
+    kprintf("%d",test);
     index = (KVADDR_TO_PADDR(addr) - pt_info.firstfreepaddr) / PAGE_SIZE;  //get the index in the IPT 
+    n_contig_pages = pt_info.allocSize[index];        //get the number of contiguous allocated pages
+
+   
+    for(i=index;i<index+n_contig_pages;i++){
+        KASSERT(GET_KBIT(pt_info.pt[i].ctl));                       //page assigned with kmalloc
+        pt_info.pt[i].ctl = SET_VALBITZERO(pt_info.pt[i].ctl);      //valid bit = 0 -> page not valid anymore
+        pt_info.pt[i].ctl = SET_KBITZERO(pt_info.pt[i].ctl);        //clear kmalloc bit                                               
+    }
+
+    pt_info.allocSize[index]=-1;                              //clear the number of contiguous allocated pages
+
+    /*
+    if(curthread->t_in_interrupt == false){                     //if I'm in the interrupt i cannot acquire a lock
+        lock_acquire(pt_info.pt_lock);
+        cv_broadcast(pt_info.pt_cv,pt_info.pt_lock);            //Since we freed some pages, we wake up the processes waiting on the cv.
+        lock_release(pt_info.pt_lock);
+    }
+    else{
+        cv_broadcast(pt_info.pt_cv,pt_info.pt_lock);
+    }
+    */
+
+}
+
+void freePContiguousPages(paddr_t addr){
+    int i, index, n_contig_pages;
+
+    index = (addr - pt_info.firstfreepaddr) / PAGE_SIZE;  //get the index in the IPT 
     n_contig_pages = pt_info.allocSize[index];        //get the number of contiguous allocated pages
 
    

@@ -111,6 +111,8 @@ void freePages(pid_t);
  */
 paddr_t getContiguousPages(int);
 
+void freePContiguousPages(paddr_t addr);
+
 /**
  * This function frees the contiguous pages allocated in IPT
  *

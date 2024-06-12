@@ -66,7 +66,7 @@ dumbvm_can_sleep(void)
 
 static
 paddr_t
-getppages(unsigned long npages)
+getppages(unsigned long npages)//allocates pages from RAM
 {
 	paddr_t addr;
 
@@ -76,7 +76,7 @@ getppages(unsigned long npages)
 }
 
 struct addrspace *
-as_create(void)
+as_create(void)	//create address space of the process
 {
 	struct addrspace *as = kmalloc(sizeof(struct addrspace));
 	if (as==NULL) {
@@ -115,14 +115,14 @@ as_copy(struct addrspace *old, struct addrspace **ret)
 }
 
 void
-as_destroy(struct addrspace *as)
+as_destroy(struct addrspace *as)	//frees address space of the process
 {
 	/*
 	 * Clean up as needed.
 	 */
-	free_kpages(as->as_vbase1);
-	free_kpages(as->as_vbase2);
-	//free_kpages(as->as_stackvbase); TODO
+	freePContiguousPages(as->as_pbase1);	//starting address text
+	freePContiguousPages(as->as_pbase2);	//starting address code
+	freePContiguousPages(as->as_stackpbase);
 	kfree(as);
 }
 
@@ -168,7 +168,7 @@ as_deactivate(void)
  * want to implement them.
  */
 int
-as_define_region(struct addrspace *as, vaddr_t vaddr, size_t memsize,
+as_define_region(struct addrspace *as, vaddr_t vaddr, size_t memsize,	
 		 int readable, int writeable, int executable)
 {
 	size_t npages;
@@ -210,13 +210,13 @@ as_define_region(struct addrspace *as, vaddr_t vaddr, size_t memsize,
 
 static
 void
-as_zero_region(paddr_t paddr, unsigned npages)
+as_zero_region(paddr_t paddr, unsigned npages)	
 {
 	bzero((void *)PADDR_TO_KVADDR(paddr), npages * PAGE_SIZE);
 }
 
 int
-as_prepare_load(struct addrspace *as)
+as_prepare_load(struct addrspace *as)	//loads the ELF
 {
 	KASSERT(as->as_pbase1 == 0);
 	KASSERT(as->as_pbase2 == 0);
@@ -308,10 +308,9 @@ void
 free_kpages(vaddr_t addr)
 {
 	int spl = splhigh();
-	vaddr_t test = PADDR_TO_KVADDR(pt_info.firstfreepaddr);
+	// vaddr_t test = PADDR_TO_KVADDR(pt_info.firstfreepaddr);
 	spinlock_acquire(&stealmem_lock);
-	if(!pt_active  || addr < test){
-
+	if(!pt_active){
 	}
 	else {
 		spinlock_release(&stealmem_lock);

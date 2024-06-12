@@ -18,7 +18,11 @@
 #include <mips/trapframe.h>
 #include <current.h>
 #include <synch.h>
+#include "opt-final.h"
 
+#if OPT_FINAL
+#include "pt.h"
+#endif
 /*
  * system calls for process management
  */
@@ -26,6 +30,9 @@ void
 sys__exit(int status)
 {
   struct proc *p = curproc;
+  #if OPT_FINAL
+  freePages(p->p_pid);
+  #endif
   p->p_status = status & 0xff; /* just lower 8 bits returned */
   proc_remthread(curthread);
   lock_acquire(p->lock);

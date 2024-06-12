@@ -31,6 +31,10 @@
 #include <lib.h>
 #include <spinlock.h>
 #include <vm.h>
+#include "opt-final.h"
+#if OPT_FINAL
+#include "addrspace.h"
+#endif
 
 /*
  * Kernel malloc.

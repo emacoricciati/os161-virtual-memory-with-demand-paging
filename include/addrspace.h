@@ -37,6 +37,11 @@
 
 #include <vm.h>
 #include "opt-dumbvm.h"
+#include "opt-final.h"
+
+#if OPT_FINAL
+struct spinlock stealmem_lock;
+#endif
 
 struct vnode;
 
@@ -58,7 +63,13 @@ struct addrspace {
         size_t as_npages2;
         paddr_t as_stackpbase;
 #else
-        /* Put stuff here for your VM system */
+        vaddr_t as_vbase1;
+        paddr_t as_pbase1;
+        size_t as_npages1;
+        vaddr_t as_vbase2;
+        paddr_t as_pbase2;
+        size_t as_npages2;
+        paddr_t as_stackpbase;
 #endif
 };
 
@@ -127,6 +138,17 @@ int               as_define_stack(struct addrspace *as, vaddr_t *initstackptr);
  */
 
 int load_elf(struct vnode *v, vaddr_t *entrypoint);
+
+#if OPT_FINAL
+/* Initialization function */
+void vm_bootstrap(void);
+/* Allocate/free kernel heap pages (called by kmalloc/kfree) */
+vaddr_t alloc_kpages(unsigned npages);
+void free_kpages(vaddr_t addr);
+/* TLB shootdown handling called from interprocessor_interrupt */
+void vm_tlbshootdown(const struct tlbshootdown *);
+void addrspace_init(void);
+#endif
 
 
 #endif /* _ADDRSPACE_H_ */

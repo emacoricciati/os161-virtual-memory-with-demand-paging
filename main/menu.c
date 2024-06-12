@@ -115,7 +115,7 @@ int
 common_prog(int nargs, char **args)
 {
 	struct proc *proc;
-	int result;
+	int result, exit;
 
 	/* Create a process for the new program to run in. */
 	proc = proc_create_runprogram(args[0] /* name */);
@@ -137,6 +137,8 @@ common_prog(int nargs, char **args)
 	 * The new process will be destroyed when the program exits...
 	 * once you write the code for handling that.
 	 */
+	pid_t pid = sys_waitpid(proc->p_pid, (userptr_t)&exit, 0);
+	kprintf("thread of process %d returns with code %d\n", pid,exit);
 
 	return 0;
 }

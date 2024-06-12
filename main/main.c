@@ -49,7 +49,11 @@
 #include <syscall.h>
 #include <test.h>
 #include <version.h>
-#include "autoconf.h"  // for pseudoconfig
+#include "autoconf.h"  // for pseudoconfig+
+#include "opt-dumbvm.h"
+#if !OPT_DUMBVM
+#include "addrspace.h"
+#endif
 
 
 /*
@@ -122,7 +126,9 @@ boot(void)
 	pseudoconfig();
 	kprintf("\n");
 	kheap_nextgeneration();
-
+	#if !OPT_DUMBVM
+	addrspace_init();
+	#endif
 	/* Late phase of initialization. */
 	vm_bootstrap();
 	kprintf_bootstrap();

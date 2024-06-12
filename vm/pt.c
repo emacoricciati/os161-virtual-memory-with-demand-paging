@@ -9,13 +9,9 @@
 int next_victim = 0; // second chance
 
 
-struct spinlock stealmem_lock;
-
 static int findFreeEntryPT(){
     for(int i=0; i<pt_info.ptSize; i++){
-        int valbit = GET_VALBIT(pt_info.pt[i].ctl);
-        int iskmalloc = GET_KBIT(pt_info.pt[i].ctl);
-        if(!valbit && !iskmalloc ){
+        if(GET_VALBIT(pt_info.pt[i].ctl)==0 &&  GET_KBIT(pt_info.pt[i].ctl) == 0){
             return i;
         }
     }
@@ -23,10 +19,11 @@ static int findFreeEntryPT(){
 }
 
 void initPT(void){
+    struct spinlock stealmem_lock;
     spinlock_init(&stealmem_lock);
     spinlock_acquire(&stealmem_lock);
     int nFrames;
-    nFrames = (mainbus_ramsize() - ram_stealmem(0));               //number of frames in physical memory (= IPT size)
+    nFrames = (mainbus_ramsize() - ram_stealmem(0))/PAGE_SIZE;               //number of frames in physical memory (= IPT size)
     spinlock_release(&stealmem_lock);
 
     pt_info.pt = kmalloc(sizeof(struct pt_entry_s) * nFrames);   //one entry for each available frame
@@ -59,7 +56,7 @@ void initPT(void){
     }
 
     pt_info.firstfreepaddr = ram_stealmem(0); //ram_stealmem(0) returns the first free physical address (=from where our IPT starts)
-    pt_info.ptSize = (nFrames / PAGE_SIZE)/* - 1*/;  
+    pt_info.ptSize = nFrames/* - 1*/;  
     
     pt_active=1; //IPT ready
     spinlock_release(&stealmem_lock);
@@ -74,7 +71,7 @@ int getPAddressPT(vaddr_t v_addr, pid_t pid){   //page address, process pid
 
     KASSERT(pt_info.pt[i].vPage==v_addr);
     KASSERT(pt_info.pt[i].pid==pid);
-    KASSERT(!GET_KBIT(pt_info.pt[i].ctl));
+    KASSERT(GET_KBIT(pt_info.pt[i].ctl)==0);
 
     return i * PAGE_SIZE + pt_info.firstfreepaddr; // send the paddr found
 }
@@ -94,7 +91,7 @@ paddr_t getFramePT(vaddr_t v_addr){
     int entry = findFreeEntryPT();
     if(entry != -1){
         // free entry available
-        p_addr = addInPT(current_pid, v_addr, entry);
+        p_addr = addInPT(v_addr, current_pid, entry);
         return p_addr;
     }
     // free entry not available in the pt, find a victim
@@ -108,13 +105,12 @@ int findVictim(vaddr_t v_addr, pid_t pid){
     int i, end = next_victim, n = 0; 
 
     for(i = next_victim;; i = (i+1)%pt_info.ptSize){
-        int iskmalloc = GET_KBIT(pt_info.pt[i].ctl);
         // if the page can be replaced
-        if(!iskmalloc){ 
+        if(GET_KBIT(pt_info.pt[i].ctl) == 0){ 
             // second change algorithm
             if(GET_REFBIT(pt_info.pt[i].ctl) == 0){ // no check on validity, if validity bit = 0 it means that there is a free entry
                 // victim is found
-                KASSERT(!GET_KBIT(pt_info.pt[i].ctl)); // no kmalloc
+                KASSERT(GET_KBIT(pt_info.pt[i].ctl)==0); // no kmalloc
                 KASSERT(GET_VALBIT(pt_info.pt[i].ctl)); // valid entry
                 // Overwrite the entry
                 pt_info.pt[i].pid = pid;
@@ -150,9 +146,9 @@ void freePages(pid_t pid){  // frees all pages from PT and the list using pid
 
     for (int i = 0; i < pt_info.ptSize; i++){
         if (pt_info.pt[i].pid == pid){
-            if(GET_VALBIT(pt_info.pt[i].ctl) && !GET_KBIT(pt_info.pt[i].ctl)){ //We don't free: kmalloc pages                                   
+            if(GET_VALBIT(pt_info.pt[i].ctl) && GET_KBIT(pt_info.pt[i].ctl)==0){ //We don't free: kmalloc pages                                   
                 KASSERT(GET_VALBIT(pt_info.pt[i].ctl));
-                KASSERT(!GET_KBIT(pt_info.pt[i].ctl));
+                KASSERT(GET_KBIT(pt_info.pt[i].ctl)==0);
                 removeFromPT(pt_info.pt[i].vPage, pt_info.pt[i].pid);
             }
         } 
@@ -195,7 +191,7 @@ void freeContiguousPages(vaddr_t addr){
 int getIndexFromPT(vaddr_t vad, pid_t pid){  
     for (int i = 0; i < pt_info.ptSize; i++){
         if (pt_info.pt[i].pid == pid && pt_info.pt[i].vPage == vad){
-            if(!GET_KBIT(pt_info.pt[i].ctl)){
+            if(GET_KBIT(pt_info.pt[i].ctl)==0){
                 return i;
             }
         } 
@@ -236,20 +232,19 @@ paddr_t getContiguousPages(int nPages){
         panic("Can't do kmalloc, not enough memory"); //Impossible allocation
     }
 
-    //Option 1: searching for npages contiguous non valid entries in order to avoid swapping
+    //Option 1: searching for contiguos npages in order to avoid swapping
     for (i = 0; i < pt_info.ptSize; i++){
         if(i!=0){           //Checking the validity of the previous entry
-            prev = GET_KBIT(pt_info.pt[i].ctl) || (GET_VALBIT(pt_info.pt[i].ctl) && GET_REFBIT(pt_info.pt[i].ctl)) ? 1 : 0; 
+            prev = GET_KBIT(pt_info.pt[i-1].ctl) || (GET_VALBIT(pt_info.pt[i-1].ctl) && GET_REFBIT(pt_info.pt[i-1].ctl)) ? 1 : 0; 
         }
-        if(!GET_VALBIT(pt_info.pt[i].ctl) && !GET_KBIT(pt_info.pt[i].ctl) && (i==0 || prev)){  //checking if the current entry is not valid while the previous one was valid (or if the first entry is not valid)
+        if(GET_VALBIT(pt_info.pt[i].ctl)==0 && GET_KBIT(pt_info.pt[i].ctl)==0 && (i==0 || prev)){  //checking if the current entry is not valid while the previous one was valid (or if the first entry is not valid)
             first=i; 
         } 
-        if(first>=0 && !GET_VALBIT(pt_info.pt[i].ctl) && !GET_KBIT(pt_info.pt[i].ctl) && i-first==nPages-1){ //We found npages contiguous entries not valid
+        if(first>=0 && GET_VALBIT(pt_info.pt[i].ctl)==0 && GET_KBIT(pt_info.pt[i].ctl)==0 && i-first==nPages-1){ //We found npages contiguous entries
             //we are allocating with kmalloc
             for(j=first;j<=i;j++){
-                KASSERT(!GET_KBIT(pt_info.pt[j].vPage));          
-                KASSERT(!GET_VALBIT(pt_info.pt[j].ctl));
-                
+                KASSERT(GET_KBIT(pt_info.pt[j].vPage)==0);          
+                KASSERT(GET_VALBIT(pt_info.pt[j].ctl)==0);
                 pt_info.pt[j].ctl=SET_VALBITONE(pt_info.pt[j].ctl);   //Set pages as valid
                 pt_info.pt[j].ctl=SET_KBITONE(pt_info.pt[j].ctl);     //This page can't be swapped out until when we perform a free on it
                 //pt_info.pt[j].pid = curproc->p_pid;       //vaddr and pid are useless here since kernel uses a different address translation (i.e. it doesn't access the IPT to get their physical address)
@@ -263,7 +258,7 @@ paddr_t getContiguousPages(int nPages){
     //Option 2: we perform victim selection because table is full
     while(1){  //Exit only when we find n contiguous victims
         for (i = next_victim; i < pt_info.ptSize; i++){
-            if (!GET_KBIT(pt_info.pt[i].vPage) ){ //Checking if the entry can be removed
+            if (GET_KBIT(pt_info.pt[i].vPage) == 0){ //Checking if the entry can be removed
                 if(GET_REFBIT(pt_info.pt[i].ctl) && GET_VALBIT(pt_info.pt[i].ctl)){ //If the page is valid and has reference=1 we set reference=0 (due to second chance algorithm) and we continue
                     pt_info.pt[i].ctl = SET_REFBITZERO(pt_info.pt[i].ctl);
                     continue;
@@ -274,8 +269,8 @@ paddr_t getContiguousPages(int nPages){
                 }
                 if(first>=0 && (GET_REFBIT(pt_info.pt[i].ctl) == 0 || GET_VALBIT(pt_info.pt[i].ctl) == 0) && i-first==nPages-1){ //We found npages contiguous entries that can be removed
                     for(j=first;j<=i;j++){
-                        KASSERT(!GET_KBIT(pt_info.pt[j].vPage));
-                        KASSERT(!GET_REFBIT(pt_info.pt[j].ctl) || !GET_VALBIT(pt_info.pt[j].ctl));
+                        KASSERT(GET_KBIT(pt_info.pt[j].vPage)==0);
+                        KASSERT(GET_REFBIT(pt_info.pt[j].ctl)==0 || GET_VALBIT(pt_info.pt[j].ctl)==0);
                         pt_info.pt[j].pid = curproc->p_pid;
                         pt_info.pt[j].vPage = SET_KBITONE(pt_info.pt[j].ctl); //To remember that this page can't be swapped out until when we perform a free
                         pt_info.pt[j].ctl = SET_VALBITONE(pt_info.pt[j].ctl); //Set pages as valid
@@ -300,5 +295,5 @@ paddr_t getContiguousPages(int nPages){
         first=-1; //reset of variable first
     }
 
-    return ENOMEM; //inserted to avoid compilation errors
+    return 0;
 }

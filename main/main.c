@@ -51,6 +51,7 @@
 #include <version.h>
 #include "autoconf.h"  // for pseudoconfig+
 #include "opt-dumbvm.h"
+#include "opt-debug.h"
 #if !OPT_DUMBVM
 #include "addrspace.h"
 #endif
@@ -108,6 +109,10 @@ boot(void)
 	kprintf("Put-your-group-name-here's system version %s (%s #%d)\n",
 		GROUP_VERSION, buildconfig, buildversion);
 	kprintf("\n");
+
+	#if OPT_DEBUG
+	kprintf("DEBUG MODE IS ON\n\n");
+	#endif
 
 	/* Early initialization. */
 	ram_bootstrap();

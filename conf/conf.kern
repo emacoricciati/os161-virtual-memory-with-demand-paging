@@ -449,6 +449,12 @@ file syscall/file_syscalls.c
 #IPT
 file vm/pt.c
 
+#TLB
+file vm/vm_tlb.c
+
+#STATS
+file vm/stats.c
+
 defoption fork
 defoption final
 defoption debug

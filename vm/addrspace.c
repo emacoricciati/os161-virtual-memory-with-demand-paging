@@ -39,6 +39,8 @@
 #include "mips/tlb.h"
 #include <cpu.h>
 #include "opt-final.h"
+#include "vm_tlb.h"
+#include "stats.h"
 
 #if OPT_FINAL
 #include "pt.h"
@@ -129,7 +131,7 @@ as_destroy(struct addrspace *as)	//frees address space of the process
 void
 as_activate(void)
 {
-	int i, spl;
+	int spl;
 	struct addrspace *as;
 
 	as = proc_getas();
@@ -140,9 +142,7 @@ as_activate(void)
 	/* Disable interrupts on this CPU while frobbing the TLB. */
 	spl = splhigh();
 
-	for (i=0; i<NUM_TLB; i++) {
-		tlb_write(TLBHI_INVALID(i), TLBLO_INVALID(), i);
-	}
+	tlbInvalidate(); // invalidate entries in the TLB only when a new process is activated
 
 	splx(spl);
 }
@@ -266,6 +266,7 @@ as_define_stack(struct addrspace *as, vaddr_t *stackptr)
 
 void vm_bootstrap(void){
 	initPT();
+	initializeStatistics();
 }
 
 void addrspace_init(void){
@@ -323,107 +324,154 @@ free_kpages(vaddr_t addr)
 
 }
 
-int
-vm_fault(int faulttype, vaddr_t faultaddress)
-{
-	vaddr_t vbase1, vtop1, vbase2, vtop2, stackbase, stacktop;
-	paddr_t paddr;
-	int i;
-	uint32_t ehi, elo;
-	struct addrspace *as;
-	int spl;
+#if !OPT_DUMBVM
+// int
+// vm_fault(int faulttype, vaddr_t faultaddress)
+// {
+// 	paddr_t paddr;
+// 	int i;
+// 	uint32_t ehi, elo;
+// 	struct addrspace *as;
+// 	int spl;
 
-	faultaddress &= PAGE_FRAME;
+//     #if OPT_DEBUG
+//     tlbPrint();
+//     #endif
 
-	DEBUG(DB_VM, "dumbvm: fault: 0x%x\n", faultaddress);
+// 	faultaddress &= PAGE_FRAME;
 
-	switch (faulttype) {
-	    case VM_FAULT_READONLY:
-		/* We always create pages read-write, so we can't get this */
-		panic("dumbvm: got VM_FAULT_READONLY\n");
-	    case VM_FAULT_READ:
-	    case VM_FAULT_WRITE:
-		break;
-	    default:
-		return EINVAL;
-	}
+// 	DEBUG(DB_VM, "dumbvm: fault: 0x%x\n", faultaddress);
 
-	if (curproc == NULL) {
-		/*
-		 * No process. This is probably a kernel fault early
-		 * in boot. Return EFAULT so as to panic instead of
-		 * getting into an infinite faulting loop.
-		 */
-		return EFAULT;
-	}
+// 	switch (faulttype) {
+// 	    case VM_FAULT_READONLY:
+// 		/* We always create pages read-write, so we can't get this */
+// 		panic("dumbvm: got VM_FAULT_READONLY\n");
+// 	    case VM_FAULT_READ:
+// 	    case VM_FAULT_WRITE:
+// 		break;
+// 	    default:
+// 		return EINVAL;
+// 	}
 
-	as = proc_getas();
-	if (as == NULL) {
-		/*
-		 * No address space set up. This is probably also a
-		 * kernel fault early in boot.
-		 */
-		return EFAULT;
-	}
+// 	if (curproc == NULL) {
+// 		/*
+// 		 * No process. This is probably a kernel fault early
+// 		 * in boot. Return EFAULT so as to panic instead of
+// 		 * getting into an infinite faulting loop.
+// 		 */
+// 		return EFAULT;
+// 	}
 
-	/* Assert that the address space has been set up properly. */
-	KASSERT(as->as_vbase1 != 0);
-	KASSERT(as->as_pbase1 != 0);
-	KASSERT(as->as_npages1 != 0);
-	KASSERT(as->as_vbase2 != 0);
-	KASSERT(as->as_pbase2 != 0);
-	KASSERT(as->as_npages2 != 0);
-	KASSERT(as->as_stackpbase != 0);
-	KASSERT((as->as_vbase1 & PAGE_FRAME) == as->as_vbase1);
-	KASSERT((as->as_pbase1 & PAGE_FRAME) == as->as_pbase1);
-	KASSERT((as->as_vbase2 & PAGE_FRAME) == as->as_vbase2);
-	KASSERT((as->as_pbase2 & PAGE_FRAME) == as->as_pbase2);
-	KASSERT((as->as_stackpbase & PAGE_FRAME) == as->as_stackpbase);
+// 	as = proc_getas();
+// 	if (as == NULL) {
+// 		/*
+// 		 * No address space set up. This is probably also a
+// 		 * kernel fault early in boot.
+// 		 */
+// 		return EFAULT;
+// 	}
 
-	#if OPT_FINAL
-	getFramePT(faultaddress);
-	#endif
+// 	/* Assert that the address space has been set up properly. */
+// 	KASSERT(as->as_vbase1 != 0);
+// 	KASSERT(as->as_pbase1 != 0);
+// 	KASSERT(as->as_npages1 != 0);
+// 	KASSERT(as->as_vbase2 != 0);
+// 	KASSERT(as->as_pbase2 != 0);
+// 	KASSERT(as->as_npages2 != 0);
+// 	KASSERT(as->as_stackpbase != 0);
+// 	KASSERT((as->as_vbase1 & PAGE_FRAME) == as->as_vbase1);
+// 	KASSERT((as->as_pbase1 & PAGE_FRAME) == as->as_pbase1);
+// 	KASSERT((as->as_vbase2 & PAGE_FRAME) == as->as_vbase2);
+// 	KASSERT((as->as_pbase2 & PAGE_FRAME) == as->as_pbase2);
+// 	KASSERT((as->as_stackpbase & PAGE_FRAME) == as->as_stackpbase);
 
-	vbase1 = as->as_vbase1;
-	vtop1 = vbase1 + as->as_npages1 * PAGE_SIZE;
-	vbase2 = as->as_vbase2;
-	vtop2 = vbase2 + as->as_npages2 * PAGE_SIZE;
-	stackbase = USERSTACK - DUMBVM_STACKPAGES * PAGE_SIZE;
-	stacktop = USERSTACK;
+// 	#if OPT_FINAL
+// 	paddr = getFramePT(faultaddress);
+// 	#else
+// 	vaddr_t vbase1, vtop1, vbase2, vtop2, stackbase, stacktop;
+// 	vbase1 = as->as_vbase1;
+// 	vtop1 = vbase1 + as->as_npages1 * PAGE_SIZE;
+// 	vbase2 = as->as_vbase2;
+// 	vtop2 = vbase2 + as->as_npages2 * PAGE_SIZE;
+// 	stackbase = USERSTACK - DUMBVM_STACKPAGES * PAGE_SIZE;
+// 	stacktop = USERSTACK;
 
-	if (faultaddress >= vbase1 && faultaddress < vtop1) {
-		paddr = (faultaddress - vbase1) + as->as_pbase1;
-	}
-	else if (faultaddress >= vbase2 && faultaddress < vtop2) {
-		paddr = (faultaddress - vbase2) + as->as_pbase2;
-	}
-	else if (faultaddress >= stackbase && faultaddress < stacktop) {
-		paddr = (faultaddress - stackbase) + as->as_stackpbase;
-	}
-	else {
-		return EFAULT;
-	}
+// 	if (faultaddress >= vbase1 && faultaddress < vtop1) {
+// 		paddr = (faultaddress - vbase1) + as->as_pbase1;
+// 	}
+// 	else if (faultaddress >= vbase2 && faultaddress < vtop2) {
+// 		paddr = (faultaddress - vbase2) + as->as_pbase2;
+// 	}
+// 	else if (faultaddress >= stackbase && faultaddress < stacktop) {
+// 		paddr = (faultaddress - stackbase) + as->as_stackpbase;
+// 	}
+// 	else {
+// 		return EFAULT;
+// 	}
+// 	#endif
 
-	/* make sure it's page-aligned */
-	KASSERT((paddr & PAGE_FRAME) == paddr);
+// 	/* make sure it's page-aligned */
+// 	KASSERT((paddr & PAGE_FRAME) == paddr);
 
-	/* Disable interrupts on this CPU while frobbing the TLB. */
-	spl = splhigh();
+// 	/* Disable interrupts on this CPU while frobbing the TLB. */
+// 	spl = splhigh();
 
-	for (i=0; i<NUM_TLB; i++) {
-		tlb_read(&ehi, &elo, i);
-		if (elo & TLBLO_VALID) {
-			continue;
+// 	for (i=0; i<NUM_TLB; i++) {
+// 		tlb_read(&ehi, &elo, i);
+// 		if (elo & TLBLO_VALID) {
+// 			continue;
+// 		}
+// 		ehi = faultaddress;
+// 		elo = paddr | TLBLO_DIRTY | TLBLO_VALID;
+// 		DEBUG(DB_VM, "dumbvm: 0x%x -> 0x%x\n", faultaddress, paddr);
+// 		tlb_write(ehi, elo, i);
+// 		splx(spl);
+// 		return 0;
+// 	}
+
+// 	kprintf("dumbvm: Ran out of TLB entries - cannot handle page fault\n");
+// 	splx(spl);
+// 	return EFAULT;
+// }
+#endif
+
+
+int as_is_ok(void){
+    struct addrspace *as = proc_getas();
+    if(as == NULL)
+        return 0;
+    if(as->as_vbase1 == 0)
+        return 0;
+    if(as->as_vbase2 == 0)
+        return 0;
+    if(as->as_npages1 == 0)
+        return 0;
+    if(as->as_npages2 == 0)
+        return 0;
+    return 1;
+}
+
+void vm_shutdown(void){
+	
+	#if OPT_DEBUG
+	int foundNotFreed = 0;
+	//Print entry in the pt that has not been freed
+	for(int i=0;i<pt_info.ptSize;i++){
+		if(pt_info.pt[i].ctl!=0){
+			foundNotFreed = 1;
+			kprintf("Entry%d has not been freed! ctl=%d, pid=%d\n",i,pt_info.pt[i].ctl,pt_info.pt[i].pid);
 		}
-		ehi = faultaddress;
-		elo = paddr | TLBLO_DIRTY | TLBLO_VALID;
-		DEBUG(DB_VM, "dumbvm: 0x%x -> 0x%x\n", faultaddress, paddr);
-		tlb_write(ehi, elo, i);
-		splx(spl);
-		return 0;
+		if(pt_info.pt[i].vPage==1){
+			foundNotFreed = 1;
+			kprintf("It looks like some errors with free occurred: entry%d, process %d\n",i,pt_info.pt[i].pid);
+		}
+
 	}
 
-	kprintf("dumbvm: Ran out of TLB entries - cannot handle page fault\n");
-	splx(spl);
-	return EFAULT;
+	if(!foundNotFreed){
+		kprintf("\nAll entries in the PT have been freed correctly\n");
+	}
+	#endif
+	// print statistics
+	printStatistics();
 }

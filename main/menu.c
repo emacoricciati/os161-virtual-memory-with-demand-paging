@@ -138,7 +138,8 @@ common_prog(int nargs, char **args)
 	 * once you write the code for handling that.
 	 */
 	pid_t pid = sys_waitpid(proc->p_pid, (userptr_t)&exit, 0);
-	kprintf("thread of process %d returns with code %d\n", pid,exit);
+	DEBUG(DB_IPT, "\nthread of process %d returns with code %d\n", pid,exit);
+	
 
 	return 0;
 }

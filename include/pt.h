@@ -17,6 +17,10 @@
 #define SET_KBITONE(val) (val | 4)                  //we defined an other bit to manage the kmalloc of a page
 #define SET_KBITZERO(val) (val & ~4)
 #define GET_KBIT(val) (val & 4)
+#define SET_TLBBITZERO(val) (val & ~8)
+#define SET_TLBBITONE(val) (val | 8)
+#define GET_TLBBIT(val) (val & 8)
+
 
 
 int pt_active;
@@ -121,6 +125,16 @@ void freePContiguousPages(paddr_t addr);
  *
  */
 void freeContiguousPages(vaddr_t);
+/**
+ * This function advices that a page is removed from TLB.
+ *
+ * @param vaddr_t: virtual address
+ *
+ *
+ * @return 1 if everything ok, -1 otherwise
+ */
+int tlbUpdateBit(vaddr_t, pid_t);
 void removeFromPT(vaddr_t, pid_t);
 int getIndexFromPT(vaddr_t, pid_t);
+
 #endif

@@ -142,12 +142,19 @@ int load_elf(struct vnode *v, vaddr_t *entrypoint);
 #if OPT_FINAL
 /* Initialization function */
 void vm_bootstrap(void);
+/* Shutdown function */
+void vm_shutdown(void);
 /* Allocate/free kernel heap pages (called by kmalloc/kfree) */
 vaddr_t alloc_kpages(unsigned npages);
 void free_kpages(vaddr_t addr);
 /* TLB shootdown handling called from interprocessor_interrupt */
 void vm_tlbshootdown(const struct tlbshootdown *);
 void addrspace_init(void);
+/**
+ * This function checks if the as has been correcty set
+ * @return 0 if not ok, 1 if ok
+*/
+int as_is_ok(void);
 #endif
 
 

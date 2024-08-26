@@ -77,7 +77,7 @@ int getPAddressPT(vaddr_t v_addr, pid_t pid){   //page address, process pid
 }
 
 paddr_t getFramePT(vaddr_t v_addr){
-
+    // wrapper function to get the physical address
     pid_t current_pid = curproc->p_pid;
     int val = getPAddressPT(v_addr,current_pid);
     paddr_t p_addr;
@@ -250,6 +250,7 @@ paddr_t addInPT(vaddr_t v_addr, pid_t pid, int index){
     pt_info.pt[index].pid=pid;
     pt_info.pt[index].ctl=0;
     pt_info.pt[index].ctl=SET_VALBITONE(pt_info.pt[index].ctl);
+    pt_info.pt[index].ctl=SET_TLBBITONE(pt_info.pt[index].ctl);
     return (paddr_t) (pt_info.firstfreepaddr + index*PAGE_SIZE);
 }
 
@@ -326,4 +327,32 @@ paddr_t getContiguousPages(int nPages){
     }
 
     return 0;
+}
+
+
+int tlbUpdateBit(vaddr_t v, pid_t pid)
+{     
+
+    int i;
+
+    DEBUG(DB_TLB,"Update tlb bit, vaddr=0x%x, pid=%d\n",v,pid);
+
+    for (i = 0; i < pt_info.ptSize; i++)
+    {
+        if (pt_info.pt[i].vPage == v && pt_info.pt[i].pid==pid && GET_VALBIT(pt_info.pt[i].ctl)==1) // Page found
+        {
+            if(GET_TLBBIT(pt_info.pt[i].ctl) != 0){
+                // error
+                kprintf("Error for process %d, vaddr 0x%x, ctl=0x%x\n",pid,v,pt_info.pt[i].ctl);
+            }
+            KASSERT(GET_KBIT(pt_info.pt[i].vPage)==0);
+            KASSERT(GET_TLBBIT(pt_info.pt[i].ctl) == 1); // it must be inside TLB
+            pt_info.pt[i].ctl = SET_TLBBITZERO(pt_info.pt[i].ctl); // remove TLB bit
+            pt_info.pt[i].ctl = SET_REFBITONE(pt_info.pt[i].ctl);  // set ref bit to 1
+
+            return 1;                                    
+        }
+    }
+
+    return -1;
 }

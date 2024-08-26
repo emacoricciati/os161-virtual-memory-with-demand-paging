@@ -89,6 +89,9 @@
 #define DB_NET         0x0400
 #define DB_NETFS       0x0800
 #define DB_KMALLOC     0x1000
+#define DB_IPT         0x1200
+#define DB_TLB         0x1400
+#define DB_SWAP        0x1600
 
 extern uint32_t dbflags;
 

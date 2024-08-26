@@ -161,6 +161,10 @@ shutdown(void)
 
 	kprintf("Shutting down.\n");
 
+	#if !OPT_DUMBVM
+	vm_shutdown();
+	#endif
+
 	vfs_clearbootfs();
 	vfs_clearcurdir();
 	vfs_unmountall();

@@ -38,9 +38,11 @@
 #include <vm.h>
 #include "opt-dumbvm.h"
 #include "opt-final.h"
+#include "elf.h"
 
 #if OPT_FINAL
 struct spinlock stealmem_lock;
+struct semaphore *sem_fork;
 #endif
 
 struct vnode;
@@ -63,13 +65,18 @@ struct addrspace {
         size_t as_npages2;
         paddr_t as_stackpbase;
 #else
-        vaddr_t as_vbase1;
-        paddr_t as_pbase1;
+        //text
+        vaddr_t as_vbase1;      
         size_t as_npages1;
-        vaddr_t as_vbase2;
-        paddr_t as_pbase2;
+        size_t initial_offset_text;                                                     
+        Elf_Phdr prog_head_text;//Program header of the text section                    
+         //data
+        vaddr_t as_vbase2;     
         size_t as_npages2;
-        paddr_t as_stackpbase;
+        size_t initial_offset_data;                                                     
+        Elf_Phdr prog_head_data;//Program header of the data section               
+        struct vnode *v;        //vnode of the elf file                                 
+        int valid;
 #endif
 };
 
@@ -115,7 +122,12 @@ struct addrspace {
  */
 
 struct addrspace *as_create(void);
+
+#if OPT_DUMBVM
 int               as_copy(struct addrspace *src, struct addrspace **ret);
+#else
+int               as_copy(struct addrspace *src, struct addrspace **ret, pid_t oldPid, pid_t newPid);
+#endif
 void              as_activate(void);
 void              as_deactivate(void);
 void              as_destroy(struct addrspace *);
@@ -147,6 +159,7 @@ void vm_shutdown(void);
 /* Allocate/free kernel heap pages (called by kmalloc/kfree) */
 vaddr_t alloc_kpages(unsigned npages);
 void free_kpages(vaddr_t addr);
+void createSemFork(void);
 /* TLB shootdown handling called from interprocessor_interrupt */
 void vm_tlbshootdown(const struct tlbshootdown *);
 void addrspace_init(void);
@@ -154,7 +167,7 @@ void addrspace_init(void);
  * This function checks if the as has been correcty set
  * @return 0 if not ok, 1 if ok
 */
-int as_is_ok(void);
+int as_is_correct(void);
 #endif
 
 

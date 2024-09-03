@@ -41,6 +41,8 @@
 #include "opt-final.h"
 #include "vm_tlb.h"
 #include "stats.h"
+#include "vfs.h"
+#include "vnode.h"
 
 #if OPT_FINAL
 #include "pt.h"
@@ -53,6 +55,7 @@
  * used. The cheesy hack versions in dumbvm.c are used instead.
  */
 
+#if OPT_DUMBVM
 static
 void
 dumbvm_can_sleep(void)
@@ -65,6 +68,7 @@ dumbvm_can_sleep(void)
 		KASSERT(curthread->t_in_interrupt == 0);
 	}
 }
+#endif
 
 static
 paddr_t
@@ -78,72 +82,91 @@ getppages(unsigned long npages)//allocates pages from RAM
 }
 
 struct addrspace *
-as_create(void)	//create address space of the process
+as_create(void)
 {
-	struct addrspace *as = kmalloc(sizeof(struct addrspace));
-	if (as==NULL) {
+	struct addrspace *as;
+
+	as = kmalloc(sizeof(struct addrspace));
+	if (as == NULL) {
 		return NULL;
 	}
 
 	as->as_vbase1 = 0;
-	as->as_pbase1 = 0;
 	as->as_npages1 = 0;
 	as->as_vbase2 = 0;
-	as->as_pbase2 = 0;
 	as->as_npages2 = 0;
-	as->as_stackpbase = 0;
 
 	return as;
 }
 
 int
-as_copy(struct addrspace *old, struct addrspace **ret)
-{
-	struct addrspace *newas;
+as_copy(struct addrspace *src, struct addrspace **ret, pid_t oldPid, pid_t newPid){
+	
+	struct addrspace *newAddrSpace;
 
-	newas = as_create();
-	if (newas==NULL) {
+	newAddrSpace = as_create();
+
+	if(newAddrSpace == NULL){
 		return ENOMEM;
 	}
 
-	/*
-	 * Write this.
-	 */
+	//Assigning old address space to the new address space
+	newAddrSpace->as_vbase1 = src->as_vbase1;
+	newAddrSpace->as_npages1 = src->as_npages1;
+	newAddrSpace->as_vbase2 = src->as_vbase2;
+	newAddrSpace->as_npages2 = src->as_npages2;
 
-	(void)old;
+	//Copying the program headers
+	newAddrSpace->prog_head_text = src->prog_head_text;
+	newAddrSpace->prog_head_data = src->prog_head_data;
 
-	*ret = newas;
+	//Copying the vnode related to the ELF file
+	newAddrSpace->v = src->v;
+
+	//As the file is owned by an additional process we have to increase the reference counter in the vnode
+	src->v->vn_refcount++;	//in order to ensure a safe close of the ELF file
+
+	newAddrSpace->initial_offset_text = src->initial_offset_text;
+	newAddrSpace->initial_offset_data = src->initial_offset_data;
+
+	//TODO: swapfile and update pt.c
+	(void)newPid;
+	(void)oldPid;
+	//prepareCopyPT(oldPid);				//Setup of the page copy in the Page Table
+	//copy_swap_pages(newPid, oldPid);		//Copying the swap pages TODO:swapfile.c
+	//copy_pt_entries(oldPid, newPid);		//Copying the entries of the Page Table TODO:pt.c
+	//end_copy_pt(oldPid);					//Restoring to the initial configuration TODO:pt.c
+
+	*ret = newAddrSpace;
 	return 0;
 }
 
-void
-as_destroy(struct addrspace *as)	//frees address space of the process
-{
-	/*
-	 * Clean up as needed.
-	 */
-	freePContiguousPages(as->as_pbase1);	//starting address text
-	freePContiguousPages(as->as_pbase2);	//starting address code
-	freePContiguousPages(as->as_stackpbase);
+//dispose of an address space. You may need to change the way this works if implementing user-level threads.
+void as_destroy(struct addrspace *as){
+	if(as->v->vn_refcount==1){	//if there is only one process related to the elf file
+		vfs_close(as->v); 		//closing the ELF file by sys_exit on the last process owning it
+	}
+	else{
+		as->v->vn_refcount--; 	//decreasing the number of processes related to the ELF file
+	}
+
 	kfree(as);
 }
 
 void
 as_activate(void)
 {
-	int spl;
 	struct addrspace *as;
-
+	int spl;
+	spl = splhigh();
+	DEBUG(DB_IPT,"PROCESS RUNNING PROCESS %d\n",curproc->p_pid);
 	as = proc_getas();
 	if (as == NULL) {
 		return;
 	}
 
-	/* Disable interrupts on this CPU while frobbing the TLB. */
-	spl = splhigh();
-
-	tlbInvalidate(); // invalidate entries in the TLB only when a new process is activated
-
+	// invalidate entries in the TLB only when a new process is activated
+	tlbInvalidate();
 	splx(spl);
 }
 
@@ -157,120 +180,87 @@ as_deactivate(void)
 	 */
 }
 
-/*
- * Set up a segment at virtual address VADDR of size MEMSIZE. The
- * segment in memory extends from VADDR up to (but not including)
- * VADDR+MEMSIZE.
- *
- * The READABLE, WRITEABLE, and EXECUTABLE flags are set if read,
- * write, or execute permission should be set on the segment. At the
- * moment, these are ignored. When you write the VM system, you may
- * want to implement them.
- */
-int
-as_define_region(struct addrspace *as, vaddr_t vaddr, size_t memsize,	
-		 int readable, int writeable, int executable)
-{
-	size_t npages;
+//set up a region of memory within the address space.
+int as_define_region(struct addrspace *as, vaddr_t vaddr, size_t memsize, int readable, int writeable, int executable){
+	size_t npages, initial_offset;
 
-	dumbvm_can_sleep();
+	//align the base of the region
+	memsize += vaddr & ~(vaddr_t)PAGE_FRAME;	//calculates the offset of vaddr within its current page. This is added to memsize to account for the extra space needed to align vaddr to the page boundary.
+	initial_offset=vaddr % PAGE_SIZE; 			//since vaddr may not be aligned to a page, we save the initial offset (that otherwise would be lost after the next instruction)
+	vaddr &= PAGE_FRAME;						//aligns the vaddr to the start of the page by clearing the offset bits
 
-	/* Align the region. First, the base... */
-	memsize += vaddr & ~(vaddr_t)PAGE_FRAME;
-	vaddr &= PAGE_FRAME;
-
-	/* ...and now the length. */
-	memsize = (memsize + PAGE_SIZE - 1) & PAGE_FRAME;
-
+	//align the length of the region
+	memsize = (memsize + initial_offset + PAGE_SIZE - 1) & PAGE_FRAME;	//Adds initial_offset to account for the part of the page that was "lost" due to alignment.
+																		//Adds PAGE_SIZE - 1 to ensure any partial page is fully covered.
+																		//Aligns the result to the nearest page boundary using & PAGE_FRAME
 	npages = memsize / PAGE_SIZE;
 
-	/* We don't use these - all pages are read-write */
+	//We don't use these - exceptions about writing a readonly page will be raised by checking the virtual address
 	(void)readable;
 	(void)writeable;
 	(void)executable;
 
-	if (as->as_vbase1 == 0) {
+	if (as->as_vbase1 == 0) {								//region not yet defined
+		//DEBUG(DB_VM,"Text starts at: 0x%x\n",vaddr);
 		as->as_vbase1 = vaddr;
 		as->as_npages1 = npages;
+		as->initial_offset_text=initial_offset;
 		return 0;
 	}
 
-	if (as->as_vbase2 == 0) {
+	if (as->as_vbase2 == 0) {								//region not yet defined
+		//DEBUG(DB_VM,"Data starts at: 0x%x\n",vaddr);
 		as->as_vbase2 = vaddr;
 		as->as_npages2 = npages;
+		as->initial_offset_data=initial_offset;
 		return 0;
 	}
 
-	/*
-	 * Support for more than two regions is not available.
-	 */
-	kprintf("dumbvm: Warning: too many regions\n");
+	kprintf("Too many regions at once\n");	//only one region at a time is possible
+	//KASSERT(0 && "Too many regions defined");
+
 	return ENOSYS;
 }
 
-static
-void
-as_zero_region(paddr_t paddr, unsigned npages)	
-{
-	bzero((void *)PADDR_TO_KVADDR(paddr), npages * PAGE_SIZE);
-}
+// Not used with on demand paging
+// static
+// void
+// as_zero_region(paddr_t paddr, unsigned npages)	
+// {
+// 	bzero((void *)PADDR_TO_KVADDR(paddr), npages * PAGE_SIZE);
+// }
 
+// This function is not needed with on demand paging (pages are loaded only when needed)
 int
-as_prepare_load(struct addrspace *as)	//loads the ELF
+as_prepare_load(struct addrspace *as)
 {
-	KASSERT(as->as_pbase1 == 0);
-	KASSERT(as->as_pbase2 == 0);
-	KASSERT(as->as_stackpbase == 0);
 
-	dumbvm_can_sleep();
-
-	as->as_pbase1 = getContiguousPages(as->as_npages1);
-	if (as->as_pbase1 == 0) {
-		return ENOMEM;
-	}
-
-	as->as_pbase2 = getContiguousPages(as->as_npages2);
-	if (as->as_pbase2 == 0) {
-		return ENOMEM;
-	}
-
-	as->as_stackpbase = getContiguousPages(DUMBVM_STACKPAGES);
-	if (as->as_stackpbase == 0) {
-		return ENOMEM;
-	}
-
-	as_zero_region(as->as_pbase1, as->as_npages1);
-	as_zero_region(as->as_pbase2, as->as_npages2);
-	as_zero_region(as->as_stackpbase, DUMBVM_STACKPAGES);
-
-	return 0;
-}
-
-int
-as_complete_load(struct addrspace *as)
-{
-	dumbvm_can_sleep();
 	(void)as;
 	return 0;
 }
 
-int
-as_define_stack(struct addrspace *as, vaddr_t *stackptr)
-{
-	KASSERT(as->as_stackpbase != 0);
+int as_complete_load(struct addrspace *as){         //it's not needed on demand paging as we will not load anything without a fault
+    (void)as;
+    return 0;
+}
 
-	*stackptr = USERSTACK;
+int as_define_stack(struct addrspace *as, vaddr_t *stackptr){
+	(void)as;								//common way to suppress compiler warnings about unused parameters
+	*stackptr = USERSTACK;					
 	return 0;
 }
 
 
 void vm_bootstrap(void){
 	initPT();
+	//swapInit();
 	initializeStatistics();
 }
 
 void addrspace_init(void){
-	spinlock_init(&stealmem_lock);
+	spinlock_init(&stealmem_lock);	//used to protect critical sections that deal with memory, in situations where memory is being allocated directly 
+									//(before the virtual memory system is fully operational)
+	pt_active=0;
 }
 
 void
@@ -284,11 +274,13 @@ vm_tlbshootdown(const struct tlbshootdown *ts)
 vaddr_t
 alloc_kpages(unsigned npages)
 {
-	paddr_t pa;
 
 	int spl = splhigh(); // avoid context switch in this phase
 
+	paddr_t pa;
+
 	spinlock_acquire(&stealmem_lock);
+
 	if(!pt_active){
 		pa = getppages(npages);
 	}
@@ -305,23 +297,24 @@ alloc_kpages(unsigned npages)
 	return PADDR_TO_KVADDR(pa);
 }
 
-void
-free_kpages(vaddr_t addr)
-{
-	int spl = splhigh();
-	// vaddr_t test = PADDR_TO_KVADDR(pt_info.firstfreepaddr);
-	spinlock_acquire(&stealmem_lock);
-	if(!pt_active){
-	}
-	else {
-		spinlock_release(&stealmem_lock);
-		freeContiguousPages(addr);
-		spinlock_acquire(&stealmem_lock);
-	}
-	spinlock_release(&stealmem_lock);
+void free_kpages(vaddr_t addr){
+    int spl = splhigh();
 
-	splx(spl);
+    spinlock_acquire(&stealmem_lock);
 
+    if(!pt_active || addr < PADDR_TO_KVADDR(pt_info.firstfreepaddr)){
+        //Accepting a memory leak because having an additional data structure would be more expensive
+        //than a potential memory leak and also can never be freed.
+    }
+    else{
+        spinlock_release(&stealmem_lock);
+        freeContiguousPages(addr);
+        spinlock_acquire(&stealmem_lock);
+    }
+
+    spinlock_release(&stealmem_lock);
+
+    splx(spl);
 }
 
 #if !OPT_DUMBVM
@@ -436,7 +429,7 @@ free_kpages(vaddr_t addr)
 #endif
 
 
-int as_is_ok(void){
+int as_is_correct(void){
     struct addrspace *as = proc_getas();
     if(as == NULL)
         return 0;
@@ -474,4 +467,8 @@ void vm_shutdown(void){
 	#endif
 	// print statistics
 	printStatistics();
+}
+
+void createSemFork(void){
+	sem_fork = sem_create("sem_fork",1);
 }

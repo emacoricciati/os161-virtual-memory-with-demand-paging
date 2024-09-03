@@ -42,7 +42,7 @@ int vm_fault(int faulttype, vaddr_t faultaddress){
         break;
     }
     /*Check if the address space is setted up correctly*/
-    KASSERT(as_is_ok() == 1);
+    KASSERT(as_is_correct() == 1);
    /*Get physical address that it's not present in the TLB from the Page Table*/
     paddr = getFramePT(faultaddress);
     /*Insert address into the TLB */
@@ -71,11 +71,11 @@ int tlbInsert(vaddr_t faultvaddr, paddr_t faultpaddr){
             /*Write the entry in the TLB*/
                 hi = faultvaddr;
                 lo = faultpaddr | TLBLO_VALID; //the entry has to be set as valid
-            //    if(!isRO){
-            //         /*Set a dirty bit (write privilege)*/
-            //         lo = lo | TLBLO_DIRTY; 
-            //     }
-            lo = lo | TLBLO_DIRTY;  // TODO: try later (on demand paging)
+               if(!isRO){
+                    /*Set a dirty bit (write privilege)*/
+                    lo = lo | TLBLO_DIRTY; 
+                }
+            //lo = lo | TLBLO_DIRTY;  // TODO: try later (on demand paging)
             tlb_write(hi, lo, entry);
             // update the statistic
             incrementStatistics(FAULT_WITH_FREE);

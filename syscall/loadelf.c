@@ -74,6 +74,7 @@
  * change this code to not use uiomove, be sure to check for this case
  * explicitly.
  */
+#if OPT_DUMBVM
 static
 int
 load_segment(struct addrspace *as, struct vnode *v,
@@ -145,6 +146,8 @@ load_segment(struct addrspace *as, struct vnode *v,
 	return result;
 }
 
+#endif
+
 /*
  * Load an ELF executable user program into the current address space.
  *
@@ -161,6 +164,7 @@ load_elf(struct vnode *v, vaddr_t *entrypoint)
 	struct addrspace *as;
 
 	as = proc_getas();
+	as->v = v; //TODO: check if this it's redundant since it's done later
 
 	/*
 	 * Read the executable header from offset 0 in the file.
@@ -177,6 +181,10 @@ load_elf(struct vnode *v, vaddr_t *entrypoint)
 		kprintf("ELF: short read on header - file truncated?\n");
 		return ENOEXEC;
 	}
+
+	#if !OPT_DUMBVM
+	as->v = v;
+	#endif
 
 	/*
 	 * Check to make sure it's a 32-bit ELF-version-1 executable
@@ -253,6 +261,8 @@ load_elf(struct vnode *v, vaddr_t *entrypoint)
 		}
 	}
 
+	#if OPT_DUMBVM
+
 	result = as_prepare_load(as);
 	if (result) {
 		return result;
@@ -300,6 +310,44 @@ load_elf(struct vnode *v, vaddr_t *entrypoint)
 	if (result) {
 		return result;
 	}
+
+	#else
+		for (i=0; i<eh.e_phnum; i++) {
+		off_t offset = eh.e_phoff + i*eh.e_phentsize;
+		uio_kinit(&iov, &ku, &ph, sizeof(ph), offset, UIO_READ);
+
+		result = VOP_READ(v, &ku);
+		if (result) {
+			return result;
+		}
+
+		if (ku.uio_resid != 0) {
+			/* short read; problem with executable? */
+			kprintf("ELF: short read on phdr - file truncated?\n");
+			return ENOEXEC;
+		}
+
+		switch (ph.p_type) {
+		    case PT_NULL: /* skip */ continue;
+		    case PT_PHDR: /* skip */ continue;
+		    case PT_MIPS_REGINFO: /* skip */ continue;
+		    case PT_LOAD: break;
+		    default:
+			kprintf("loadelf: unknown segment type %d\n",
+				ph.p_type);
+			return ENOEXEC;
+		}
+
+		//save the program header for both the segments
+
+		if(i==1){
+			as->prog_head_text = ph;
+		}
+		if(i==2){
+			as->prog_head_data = ph;
+		}
+	}
+	#endif
 
 	*entrypoint = eh.e_entry;
 

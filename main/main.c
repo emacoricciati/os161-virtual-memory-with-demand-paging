@@ -52,6 +52,7 @@
 #include "autoconf.h"  // for pseudoconfig+
 #include "opt-dumbvm.h"
 #include "opt-debug.h"
+#include "opt-final.h"
 #if !OPT_DUMBVM
 #include "addrspace.h"
 #endif
@@ -110,6 +111,10 @@ boot(void)
 		GROUP_VERSION, buildconfig, buildversion);
 	kprintf("\n");
 
+	#if !OPT_DUMBVM
+	addrspace_init();
+	#endif
+
 	#if OPT_DEBUG
 	kprintf("DEBUG MODE IS ON\n\n");
 	#endif
@@ -131,10 +136,11 @@ boot(void)
 	pseudoconfig();
 	kprintf("\n");
 	kheap_nextgeneration();
-	#if !OPT_DUMBVM
-	addrspace_init();
-	#endif
+
 	/* Late phase of initialization. */
+	#if OPT_FINAL
+	createSemFork();
+	#endif
 	vm_bootstrap();
 	kprintf_bootstrap();
 	thread_start_cpus();

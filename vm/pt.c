@@ -341,12 +341,12 @@ int tlbUpdateBit(vaddr_t v, pid_t pid)
     {
         if (pt_info.pt[i].vPage == v && pt_info.pt[i].pid==pid && GET_VALBIT(pt_info.pt[i].ctl)==1) // Page found
         {
-            if(GET_TLBBIT(pt_info.pt[i].ctl) != 0){
+            if(GET_TLBBIT(pt_info.pt[i].ctl) == 0){
                 // error
                 kprintf("Error for process %d, vaddr 0x%x, ctl=0x%x\n",pid,v,pt_info.pt[i].ctl);
             }
             KASSERT(GET_KBIT(pt_info.pt[i].vPage)==0);
-            KASSERT(GET_TLBBIT(pt_info.pt[i].ctl) == 1); // it must be inside TLB
+            KASSERT(GET_TLBBIT(pt_info.pt[i].ctl) != 0); // it must be inside TLB
             pt_info.pt[i].ctl = SET_TLBBITZERO(pt_info.pt[i].ctl); // remove TLB bit
             pt_info.pt[i].ctl = SET_REFBITONE(pt_info.pt[i].ctl);  // set ref bit to 1
 
@@ -355,4 +355,17 @@ int tlbUpdateBit(vaddr_t v, pid_t pid)
     }
 
     return -1;
+}
+
+//TODO
+void prepareCopyPT(pid_t pid){
+
+    for(int i=0;i<pt_info.ptSize;i++){
+        if(pt_info.pt[i].pid == pid && GET_KBIT(pt_info.pt[i].vPage) == 0 && GET_VALBIT(pt_info.pt[i].ctl)){
+            KASSERT(!GET_IOBIT(pt_info.pt[i].ctl));
+            //To freeze the current situation we set the swap bit to 1.  This is done to
+            // avoid inconsistencies between the situation at the beginning and at the end of the swapping process.
+            pt_info.pt[i].ctl = SET_SWAPBITONE(pt_info.pt[i].ctl); 
+        }
+    }
 }

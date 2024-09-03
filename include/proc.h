@@ -76,6 +76,7 @@ struct proc {
         pid_t p_pid;                    /* process pid */
         struct cv *p_cv;
         struct lock *lock;
+		int ended;
 };
 
 /* This is the process structure for the kernel and for kernel-only threads. */

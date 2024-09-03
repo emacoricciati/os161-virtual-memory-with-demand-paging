@@ -455,6 +455,9 @@ file vm/vm_tlb.c
 #STATS
 file vm/stats.c
 
+#SWAPFILE
+file vm/swapfile.c
+
 defoption fork
 defoption final
 defoption debug

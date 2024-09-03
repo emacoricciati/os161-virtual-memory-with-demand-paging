@@ -20,6 +20,13 @@
 #define SET_TLBBITZERO(val) (val & ~8)
 #define SET_TLBBITONE(val) (val | 8)
 #define GET_TLBBIT(val) (val & 8)
+#define SET_IOBITONE(val) (val | 16)                
+#define SET_IOBITZERO(val) (val & ~16)
+#define GET_IOBIT(val) (val & 16)
+#define SET_SWAPBITONE(val) (val | 32)                
+#define SET_SWAPBITZERO(val) (val & ~32)
+#define GET_SWAPBIT(val) (val & 32)
+
 
 
 
@@ -136,5 +143,5 @@ void freeContiguousPages(vaddr_t);
 int tlbUpdateBit(vaddr_t, pid_t);
 void removeFromPT(vaddr_t, pid_t);
 int getIndexFromPT(vaddr_t, pid_t);
-
+void prepareCopyPT(pid_t pid);
 #endif

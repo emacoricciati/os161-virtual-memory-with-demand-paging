@@ -156,6 +156,7 @@ proc_create(const char *name)
 
 	proc_init_waitpid(proc,name);
 
+	proc->ended=0;
 	return proc;
 }
 
@@ -401,20 +402,40 @@ proc_setas(struct addrspace *newas)
 
 
         /* G.Cabodi - 2019 - support for waitpid */
+
 int 
+
 proc_wait(struct proc *proc)
+
 {
-        int return_status;
-        /* NULL and kernel proc forbidden */
+
+	int return_status;
+
+	/* NULL and kernel proc forbidden */
+
 	KASSERT(proc != NULL);
+
 	KASSERT(proc != kproc);
 
-        /* wait on semaphore or condition variable */ 
-        lock_acquire(proc->lock);
-        cv_wait(proc->p_cv, proc->lock);
-        lock_release(proc->lock);
-        return_status = proc->p_status;
-        proc_destroy(proc);
-        return return_status;
+
+
+	/* wait on semaphore or condition variable */ 
+
+	lock_acquire(proc->lock);
+
+	while(!proc->ended){ //Used to avoid starvation/deadlocks
+
+		cv_wait(proc->p_cv, proc->lock);
+
+	}
+
+	lock_release(proc->lock);
+
+	return_status = proc->p_status;
+
+	proc_destroy(proc);
+
+	return return_status;
+
 }
 

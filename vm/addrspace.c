@@ -43,6 +43,7 @@
 #include "stats.h"
 #include "vfs.h"
 #include "vnode.h"
+#include "swapfile.h"
 
 #if OPT_FINAL
 #include "pt.h"
@@ -129,13 +130,10 @@ as_copy(struct addrspace *src, struct addrspace **ret, pid_t oldPid, pid_t newPi
 	newAddrSpace->initial_offset_text = src->initial_offset_text;
 	newAddrSpace->initial_offset_data = src->initial_offset_data;
 
-	//TODO: swapfile and update pt.c
-	(void)newPid;
-	(void)oldPid;
-	//prepareCopyPT(oldPid);				//Setup of the page copy in the Page Table
-	//copy_swap_pages(newPid, oldPid);		//Copying the swap pages TODO:swapfile.c
-	//copy_pt_entries(oldPid, newPid);		//Copying the entries of the Page Table TODO:pt.c
-	//end_copy_pt(oldPid);					//Restoring to the initial configuration TODO:pt.c
+	prepareCopyPT(oldPid);				//Setup of the page copy in the Page Table
+	duplicateSwapPages(newPid, oldPid);		//Copying the swap pages TODO:swapfile.c
+	copyPTEntries(oldPid, newPid);		//Copying the entries of the Page Table TODO:pt.c
+	endCopyPT(oldPid);					//Restoring to the initial configuration TODO:pt.c
 
 	*ret = newAddrSpace;
 	return 0;

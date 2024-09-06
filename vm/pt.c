@@ -5,6 +5,7 @@
 #include "lib.h"
 #include "current.h"
 #include "proc.h"
+#include "segments.h"
 
 int next_victim = 0; // second chance
 
@@ -92,11 +93,18 @@ paddr_t getFramePT(vaddr_t v_addr){
     if(entry != -1){
         // free entry available
         p_addr = addInPT(v_addr, current_pid, entry);
-        return p_addr;
     }
-    // free entry not available in the pt, find a victim
-    entry = findVictim(v_addr, current_pid);
-    return (paddr_t) ((entry * PAGE_SIZE) + pt_info.firstfreepaddr);
+    else {
+        // free entry not available in the pt, find a victim
+        entry = findVictim(v_addr, current_pid);
+        p_addr = pt_info.firstfreepaddr + entry * PAGE_SIZE;
+    }
+
+    loadPage(v_addr,current_pid,p_addr);
+    pt_info.pt[entry].ctl = SET_IOBITONE(pt_info.pt[entry].ctl); // end of I/O operation
+    pt_info.pt[entry].ctl = SET_TLBBITONE(pt_info.pt[entry].ctl); // entry will be in TLB
+
+    return p_addr;
 }
 
 int findVictim(vaddr_t v_addr, pid_t pid){
@@ -250,7 +258,7 @@ paddr_t addInPT(vaddr_t v_addr, pid_t pid, int index){
     pt_info.pt[index].pid=pid;
     pt_info.pt[index].ctl=0;
     pt_info.pt[index].ctl=SET_VALBITONE(pt_info.pt[index].ctl);
-    pt_info.pt[index].ctl=SET_TLBBITONE(pt_info.pt[index].ctl);
+    pt_info.pt[index].ctl=SET_IOBITONE(pt_info.pt[index].ctl);
     return (paddr_t) (pt_info.firstfreepaddr + index*PAGE_SIZE);
 }
 
@@ -357,7 +365,47 @@ int tlbUpdateBit(vaddr_t v, pid_t pid)
     return -1;
 }
 
-//TODO
+
+void copyPTEntries(pid_t old, pid_t new){ // needed for fork
+
+    int pos;
+
+    // The goal is to copy all the pages associated with oldpid, but assign them to newpid instead.
+    for(int i=0;i<pt_info.ptSize;i++){
+
+        // All valid pages from old are copied, excluding the kmalloc pages.
+        if(pt_info.pt[i].pid==old && GET_VALBIT(pt_info.pt[i].ctl)!=0 && GET_KBIT(pt_info.pt[i].ctl)==0){ 
+            pos = findFreeEntryPT();
+            // If there is no available free space, the page is copied directly to the swap file to avoid victim selection, which may be impractical if space is insufficient.
+            if(pos==-1){
+                KASSERT(GET_IOBIT(pt_info.pt[i].ctl) == 0);
+                KASSERT(GET_SWAPBIT(pt_info.pt[i].ctl)== 0);
+                KASSERT(GET_KBIT(pt_info.pt[i].ctl) != 0);
+                DEBUG(DB_VM,"Copy from pt address 0x%x for process %d\n",pt_info.pt[i].vPage,new);
+                // The page is saved in the swap file, which will be associated with the new PID.
+                storeSwapFrame(pt_info.pt[i].vPage,new,pt_info.firstfreepaddr+i*PAGE_SIZE); 
+            }
+            else{ //There isn't a valid page that can be used to store the page
+                pt_info.pt[pos].ctl = SET_VALBITONE(pt_info.pt[pos].ctl);
+                pt_info.pt[pos].vPage = pt_info.pt[i].vPage;
+                pt_info.pt[pos].pid = new;
+                addInPT(pt_info.pt[i].vPage,new,pos);
+                memmove((void *)PADDR_TO_KVADDR(pt_info.firstfreepaddr + pos*PAGE_SIZE),(void *)PADDR_TO_KVADDR(pt_info.firstfreepaddr + i*PAGE_SIZE), PAGE_SIZE); //It's a copy within RAM, so we can use memmove. The reason to use PADDR_TO_KVADDR is explained in swapfile.c
+                KASSERT(GET_IOBIT(pt_info.pt[pos].ctl)==0);
+                KASSERT(GET_TLBBIT(pt_info.pt[pos].ctl)==0);
+                KASSERT(GET_SWAPBIT(pt_info.pt[pos].ctl)==0);
+                KASSERT(GET_KBIT(pt_info.pt[pos].ctl)==0);
+            }
+        }
+    }
+
+    #if OPT_DEBUG
+    printPageLists(new);
+    #endif
+
+}
+
+
 void prepareCopyPT(pid_t pid){
 
     for(int i=0;i<pt_info.ptSize;i++){
@@ -368,4 +416,22 @@ void prepareCopyPT(pid_t pid){
             pt_info.pt[i].ctl = SET_SWAPBITONE(pt_info.pt[i].ctl); 
         }
     }
+}
+
+void endCopyPT(pid_t pid){
+
+    for(int i=0;i<pt_info.ptSize;i++){
+        if(pt_info.pt[i].pid == pid && GET_KBIT(pt_info.pt[i].ctl) == 0 && GET_VALBIT(pt_info.pt[i].ctl) != 0){
+            KASSERT(GET_SWAPBIT(pt_info.pt[i].ctl)!=0);
+            pt_info.pt[i].ctl = SET_SWAPBITZERO(pt_info.pt[i].ctl); 
+        }
+    }
+
+    lock_acquire(pt_info.pt_lock);
+    /** As the pages that were previously swapped can now be selected as victims, 
+     * all processes waiting on the condition variable are awakened.
+    **/
+    cv_broadcast(pt_info.pt_cv,pt_info.pt_lock); 
+    lock_release(pt_info.pt_lock);
+
 }

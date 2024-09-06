@@ -45,6 +45,7 @@
 #include <test.h>
 #include "opt-sfs.h"
 #include "opt-net.h"
+#include "swapfile.h"
 
 /*
  * In-kernel menu and command dispatcher.
@@ -131,6 +132,19 @@ common_prog(int nargs, char **args)
 		kprintf("thread_fork failed: %s\n", strerror(result));
 		proc_destroy(proc);
 		return result;
+	}
+	else {
+
+		pid_t pid, ret_pid;
+		pid = proc->p_pid;
+		ret_pid = sys_waitpid(pid, (userptr_t)&exit, 0);
+
+		KASSERT(pid == ret_pid);
+
+		optimizeSwapfile();
+
+		kprintf("Thread exited with code %d\n",exit);
+
 	}
 
 	/*

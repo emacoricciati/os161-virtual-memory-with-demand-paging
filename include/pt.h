@@ -144,4 +144,6 @@ int tlbUpdateBit(vaddr_t, pid_t);
 void removeFromPT(vaddr_t, pid_t);
 int getIndexFromPT(vaddr_t, pid_t);
 void prepareCopyPT(pid_t pid);
+void copyPTEntries(pid_t old, pid_t new);
+void endCopyPT(pid_t pid);
 #endif

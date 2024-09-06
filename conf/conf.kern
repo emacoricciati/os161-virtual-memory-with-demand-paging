@@ -458,6 +458,9 @@ file vm/stats.c
 #SWAPFILE
 file vm/swapfile.c
 
+#SEGMENTS
+file vm/segments.c
+
 defoption fork
 defoption final
 defoption debug

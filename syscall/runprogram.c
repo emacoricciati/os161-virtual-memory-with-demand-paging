@@ -87,8 +87,10 @@ runprogram(char *progname)
 		return result;
 	}
 
+	#if OPT_DUMBVM
 	/* Done with the file now. */
 	vfs_close(v);
+	#endif
 
 	/* Define the user stack in the address space */
 	result = as_define_stack(as, &stackptr);

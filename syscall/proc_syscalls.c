@@ -18,6 +18,7 @@
 #include <mips/trapframe.h>
 #include <current.h>
 #include <synch.h>
+#include "swapfile.h"
 #include "opt-final.h"
 
 #if OPT_FINAL
@@ -32,7 +33,11 @@ sys__exit(int status)
   struct proc *p = curproc;
   #if OPT_FINAL
   freePages(p->p_pid);
+  freeProcessPagesInSwap(p->p_pid);                       //Added
   #endif
+
+  DEBUG(DB_VM,"Process %d ending\n",curproc->p_pid);      //Added
+
   p->p_status = status & 0xff; /* just lower 8 bits returned */
   proc_remthread(curthread);
   lock_acquire(p->lock);

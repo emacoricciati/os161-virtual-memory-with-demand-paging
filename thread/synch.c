@@ -318,8 +318,10 @@ cv_broadcast(struct cv *cv, struct lock *lock)
 	// Write this
     KASSERT(lock != NULL);
 	KASSERT(cv != NULL);
-	KASSERT(lock_do_i_hold(lock));
-	/* G.Cabodi - 2019: see comment on spinlocks in cv_signal */
+	if(curthread->t_in_interrupt == false){
+		KASSERT(lock_do_i_hold(lock));
+	}
+/* G.Cabodi - 2019: see comment on spinlocks in cv_signal */
 	spinlock_acquire(&cv->cv_lock);
 	wchan_wakeall(cv->cv_wchan,&cv->cv_lock);
 	spinlock_release(&cv->cv_lock);

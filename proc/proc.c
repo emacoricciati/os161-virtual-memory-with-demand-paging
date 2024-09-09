@@ -51,7 +51,6 @@
 
 #include <synch.h>
 
-#define MAX_PROC 100
 static struct _processTable {
   int active;           /* initial value 0 */
   struct proc *proc[MAX_PROC+1]; /* [0] not used. pids are >= 1 */

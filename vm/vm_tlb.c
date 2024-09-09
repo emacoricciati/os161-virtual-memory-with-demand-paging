@@ -17,7 +17,8 @@ int vm_fault(int faulttype, vaddr_t faultaddress){
     tlbPrint();
     #endif
 
-    DEBUG(DB_IPT,"\nFault address: 0x%x\n",faultaddress);
+    DEBUG(DB_VM,"\nTLB fault at address: 0x%x\n", faultaddress);
+    
     int spl = splhigh();
     paddr_t paddr;
   
@@ -173,7 +174,7 @@ void tlbInvalidate(void){
     // The process changed, not just the thread. This matters because as_activate is also triggered by thread changes.
     if(previous_pid != pid) 
     {
-    DEBUG(DB_VM,"NEW PROCESS RUNNING: %d INSTEAD OF %d\n",pid,previous_pid);
+    DEBUG(DB_VM,"New process executing: %d replacing %d. Invalidating TLB entries\n", pid, previous_pid);
 
     // Update statistic
     incrementStatistics(INVALIDATION);

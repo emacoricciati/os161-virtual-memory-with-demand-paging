@@ -60,7 +60,7 @@ sys_waitpid(pid_t pid, userptr_t statusp, int options)
   struct proc *p = proc_search_pid(pid);
   int s;
   (void)statusp;
-  DEBUG(DB_VM,"Process %d waits for %d\n",curproc->p_pid,pid);
+  DEBUG(DB_VM,"\nProcess %d waits for %d\n",curproc->p_pid,pid);
   (void)options; /* not handled */
   if (p==NULL) return -1;
   s = proc_wait(p);

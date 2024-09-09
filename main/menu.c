@@ -143,18 +143,10 @@ common_prog(int nargs, char **args)
 
 		optimizeSwapfile();
 
-		kprintf("Thread exited with code %d\n",exit);
+		kprintf("\nThread exited with code %d\n",exit);
 
 	}
-
-	/*
-	 * The new process will be destroyed when the program exits...
-	 * once you write the code for handling that.
-	 */
-	pid_t pid = sys_waitpid(proc->p_pid, (userptr_t)&exit, 0);
-	DEBUG(DB_IPT, "\nthread of process %d returns with code %d\n", pid,exit);
 	
-
 	return 0;
 }
 

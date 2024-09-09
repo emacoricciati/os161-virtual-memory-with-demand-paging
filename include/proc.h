@@ -38,6 +38,8 @@
 
 #include <spinlock.h>
 
+#define MAX_PROC 100
+
 struct addrspace;
 struct thread;
 struct vnode;

@@ -157,7 +157,7 @@ as_activate(void)
 	struct addrspace *as;
 	int spl;
 	spl = splhigh();
-	DEBUG(DB_IPT,"PROCESS RUNNING PROCESS %d\n",curproc->p_pid);
+	DEBUG(DB_EXEC,"PROCESS RUNNING PROCESS %d\n",curproc->p_pid);
 	as = proc_getas();
 	if (as == NULL) {
 		return;
@@ -199,7 +199,7 @@ int as_define_region(struct addrspace *as, vaddr_t vaddr, size_t memsize, int re
 	(void)executable;
 
 	if (as->as_vbase1 == 0) {								//region not yet defined
-		//DEBUG(DB_VM,"Text starts at: 0x%x\n",vaddr);
+		DEBUG(DB_VM,"\nText starts at: 0x%x\n",vaddr);
 		as->as_vbase1 = vaddr;
 		as->as_npages1 = npages;
 		as->initial_offset_text=initial_offset;
@@ -207,7 +207,7 @@ int as_define_region(struct addrspace *as, vaddr_t vaddr, size_t memsize, int re
 	}
 
 	if (as->as_vbase2 == 0) {								//region not yet defined
-		//DEBUG(DB_VM,"Data starts at: 0x%x\n",vaddr);
+		DEBUG(DB_VM,"Data starts at: 0x%x\n",vaddr);
 		as->as_vbase2 = vaddr;
 		as->as_npages2 = npages;
 		as->initial_offset_data=initial_offset;
@@ -250,8 +250,8 @@ int as_define_stack(struct addrspace *as, vaddr_t *stackptr){
 
 
 void vm_bootstrap(void){
+	initSwapfile();
 	initPT();
-	//swapInit();
 	initializeStatistics();
 }
 

@@ -27,6 +27,80 @@ void printPageLists(pid_t pid){
 }
 #endif
 
+int initSwapfile(void){
+    int result;
+    int i;
+    char fname[9];
+    struct swapPage *page;
+
+    // lhd0raw for swapfile
+    strcpy(fname,"lhd0raw:");
+
+    sf = kmalloc(sizeof(struct swapFile));
+    if(!sf){
+        panic("Fatal error: failed to allocate swap space");
+    }
+
+    // Open the swap file
+    result = vfs_open(fname, O_RDWR , 0, &sf->v);
+    if (result) {
+		return result;
+	}
+
+    sf->sizeSF = MAX_SIZE/PAGE_SIZE;//Pages in the swap file
+
+    sf->kbuf = kmalloc(PAGE_SIZE); //Allocating a buffer for copying swap pages, (one time allocation)
+    if(!sf->kbuf){
+        panic("Fatal error: failed to allocate kbuf");
+    }
+
+    sf->textPages = kmalloc(MAX_PROC*sizeof(struct swapPage *));
+    if(!sf->textPages){
+        panic("Fatal error: failed to allocate text pages");
+    }
+
+    sf->dataPages = kmalloc(MAX_PROC*sizeof(struct swapPage *));
+    if(!sf->dataPages){
+        panic("Fatal error: failed to allocate data pages");
+    }
+
+    sf->stackPages = kmalloc(MAX_PROC*sizeof(struct swapPage *));
+    if(!sf->stackPages){
+        panic("Fatal error: failed to allocate stack pages");
+    }
+
+    // Initialize lists for each process
+    for(i=0;i<MAX_PROC;i++){
+        sf->textPages[i]=NULL;
+        sf->dataPages[i]=NULL;
+        sf->stackPages[i]=NULL;
+    }
+
+    sf->freePages=NULL;
+
+    /** Initializes all the elements in the free list. The iteration is done
+     *  in reverse order to ensure that head insertion
+     *  results in smaller offsets for the first free elements.
+    **/
+
+    for(i=(int)(sf->sizeSF-1); i>=0; i--){
+        page=kmalloc(sizeof(struct swapPage));
+        if(!page){
+            panic("Fatal error: failed to allocate swap pages");
+        }
+        page->swapOffset=i*PAGE_SIZE;
+        page->isStoreOp=0;
+        page->operationCV = cv_create("cell_cv");
+        page->operationLock = lock_create("cell_lock");
+        // Insert the page into the free list
+        page->next=sf->freePages;
+        sf->freePages=page;
+    }
+
+    return 0;
+    
+}
+
 int loadSwapFrame(vaddr_t vaddr, pid_t pid, paddr_t paddr){
     int result;
     struct iovec iov;
@@ -66,7 +140,7 @@ int loadSwapFrame(vaddr_t vaddr, pid_t pid, paddr_t paddr){
         if(listPages->vaddr==vaddr){ //Entry found
 
             //As a consequence of parallelism we have to follow a specific order in the operations
-            //-1: RRemove the entry frmo the process list, otherwise the old entry could be considered valid
+            //-1: Remove the entry from the process list, otherwise the old entry could be considered valid
             //-2: I/0 Operation, but with the exception that the entry can't be placed in the free list
             //-3: Place the entry inside the free list (so after the I/O operation has been completed)
 
@@ -93,7 +167,7 @@ int loadSwapFrame(vaddr_t vaddr, pid_t pid, paddr_t paddr){
             }
             lock_release(listPages->operationLock);
             
-            //DEBUG(DB_VM,"LOAD SWAP in 0x%x (virtual: 0x%x) for process %d\n",list->offset, vaddr, pid);
+            DEBUG(DB_VM,"Loading swap of vaddr 0x%x in 0x%x for process %d\n",vaddr, listPages->swapOffset, pid);
 
             incrementStatistics(FAULT_DISK);               //Update of the statistics  
 
@@ -101,11 +175,11 @@ int loadSwapFrame(vaddr_t vaddr, pid_t pid, paddr_t paddr){
 
             result = VOP_READ(sf->v,&ku);                 //read
             if(result){
-                panic("VOP_READ in swapfile failed, with result=%d",result);
+                panic("Fatal error: VOP_READ for swapfile failed with result=%d",result);
             }
-            //DEBUG(DB_VM,"ENDED LOAD SWAP in 0x%x (virtual: 0x%x) for process %d\n",list->offset, list->vaddr, pid);
+            DEBUG(DB_VM,"Loading swap of vaddr 0x%x in 0x%x for process %d ended\n",listPages->vaddr, listPages->swapOffset, pid);
 
-            listPages->next=sf->freePages;                      //we put the entry in the free list
+            listPages->next=sf->freePages;                      // put the entry in the free list
             sf->freePages=listPages;
 
             incrementStatistics(FAULT_FROM_SWAPFILE);               //Update of the statistics
@@ -116,15 +190,15 @@ int loadSwapFrame(vaddr_t vaddr, pid_t pid, paddr_t paddr){
             printPageLists(pid);                           //print the list (updated)
             #endif
 
-            return 1;                                  //entry found in the swapfile, so return 1
+            return 1;                                  //entry found in the swapfile, return 1
         }
         
-        prevPages=listPages;                                     //we update prev and list
+        prevPages=listPages;                                     // update prev and list
         listPages=listPages->next;
         KASSERT(prevPages->next==listPages);
     }
 
-    return 0;                                               //no entry found, so return 0
+    return 0;                                               //no entry found, return 0
 
 }
 

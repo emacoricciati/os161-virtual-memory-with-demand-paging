@@ -83,7 +83,7 @@ int loadPage(vaddr_t vaddr, pid_t pid, paddr_t paddr){
 
     if(vaddr>=as->as_vbase1 && vaddr <= as->as_vbase1 + as->as_npages1 * PAGE_SIZE ){
 
-        DEBUG(DB_VM,"\nLoading code: ");
+        DEBUG(DB_VM,"Loading code: ");
         
 		incrementStatistics(FAULT_DISK); //update statistics
 
@@ -93,8 +93,6 @@ int loadPage(vaddr_t vaddr, pid_t pid, paddr_t paddr){
          * This offset is utilized when accessing the first page, provided it is non-zero. In such cases, the page is filled with zeros, and the loading of the ELF file commences with 
          * additional_offset used as the offset within the frame.
          */
-
-
 
 		if(as->initial_offset_text!=0 && (vaddr - as->as_vbase1)==0){
 			bzero((void*)PADDR_TO_KVADDR(paddr), PAGE_SIZE);
@@ -110,7 +108,7 @@ int loadPage(vaddr_t vaddr, pid_t pid, paddr_t paddr){
 		}
 		else{
 
-            // If filesz does not fully occupy the entire page, it is necessary to zero-fill the page before loading the data.
+            // If the remaining segment does not fully occupy the entire page, it is necessary to zero-fill the page before loading the data.
 			if(as->prog_head_text.p_filesz+as->initial_offset_text - (vaddr - as->as_vbase1)<PAGE_SIZE){ 
                 // To prevent extra TLB faults, we treat the provided physical address as if it belongs to the kernel. This allows the address translation to simply be vaddr - 0x80000000.
 				bzero((void*)PADDR_TO_KVADDR(paddr), PAGE_SIZE);
@@ -128,17 +126,17 @@ int loadPage(vaddr_t vaddr, pid_t pid, paddr_t paddr){
 
 			if((int)(as->prog_head_text.p_filesz+as->initial_offset_text) - (int)(vaddr - as->as_vbase1)<0){
 				bzero((void*)PADDR_TO_KVADDR(paddr), PAGE_SIZE);
-                DEBUG(DB_VM, "Loading ELF at physical address 0x%x (virtual address: 0x%x) for process %d\n", paddr, vaddr, pid);
+                DEBUG(DB_VM, "Loading ELF at physical address 0x%x (virtual address: 0x%x). Program with filesz < memsz\n", paddr, vaddr);
                 // The function returns directly to avoid executing a read of 0 bytes.
 				return 0;
 			}
 		}
 
-		DEBUG(DB_VM, "Loading ELF at physical address 0x%x (virtual address: 0x%x) for process %d\n", paddr, vaddr, pid);
+		DEBUG(DB_VM, "Loading ELF at physical address 0x%x (virtual address: 0x%x)\n", paddr, vaddr);
 
         result = loadELFPage(as->v, as->prog_head_text.p_offset+(vaddr - as->as_vbase1), PADDR_TO_KVADDR(paddr+additional_offset), memsz, sz-additional_offset);//We load the page
 		if (result) {
-            panic("Error reading the text segment");
+            panic("Fatal error: read from text segment failed");
 		}
 
 		incrementStatistics(FAULT_FROM_ELF); //update statistics
@@ -151,7 +149,7 @@ int loadPage(vaddr_t vaddr, pid_t pid, paddr_t paddr){
 	*/
     if(vaddr>=as->as_vbase2 && vaddr <= as->as_vbase2 + as->as_npages2 * PAGE_SIZE ){
 
-		DEBUG(DB_VM, "\nLoading data: virtual address = 0x%x, physical address = 0x%x\n", vaddr, paddr);
+		DEBUG(DB_VM, "Loading data: virtual address = 0x%x, physical address = 0x%x\n", vaddr, paddr);
 
 		incrementStatistics(FAULT_DISK);
 
@@ -175,7 +173,7 @@ int loadPage(vaddr_t vaddr, pid_t pid, paddr_t paddr){
 			if((int)(as->prog_head_data.p_filesz+as->initial_offset_data) - (int)(vaddr - as->as_vbase2)<0){
 				bzero((void*)PADDR_TO_KVADDR(paddr), PAGE_SIZE);
 				incrementStatistics(FAULT_FROM_ELF);
-                DEBUG(DB_VM, "Loading ELF at physical address 0x%x (virtual address: 0x%x) for process %d\n", paddr, vaddr, pid);
+                DEBUG(DB_VM, "Loading ELF at physical address 0x%x (virtual address: 0x%x)\n", paddr, vaddr);
 				return 0;
 			}
 		}
@@ -187,7 +185,7 @@ int loadPage(vaddr_t vaddr, pid_t pid, paddr_t paddr){
 
 		incrementStatistics(FAULT_FROM_ELF);
 
-		DEBUG(DB_VM, "Loading ELF at physical address 0x%x (virtual address: 0x%x) for process %d\n", paddr, vaddr, pid);
+		DEBUG(DB_VM, "Loading ELF at physical address 0x%x (virtual address: 0x%x)\n", paddr, vaddr);
 
         return 0;
     }
@@ -199,7 +197,7 @@ int loadPage(vaddr_t vaddr, pid_t pid, paddr_t paddr){
 
     if(vaddr>as->as_vbase2 + as->as_npages2 * PAGE_SIZE && vaddr<USERSTACK){
 
-		DEBUG(DB_VM,"\nLoading stack: ");
+		DEBUG(DB_VM,"Loading stack: ");
 
         DEBUG(DB_VM, "ELF: Loading 4096 bytes to address 0x%lx\n", (unsigned long) vaddr);
 
@@ -208,7 +206,7 @@ int loadPage(vaddr_t vaddr, pid_t pid, paddr_t paddr){
 		
 		incrementStatistics(FAULT_ZEROED); //update statistics
 
-        DEBUG(DB_VM, "Loading ELF at physical address 0x%x (virtual address: 0x%x) for process %d\n", paddr, vaddr, pid);
+        DEBUG(DB_VM, "Loading ELF at physical address 0x%x (virtual address: 0x%x)\n", paddr, vaddr);
 
         return 0;
     }

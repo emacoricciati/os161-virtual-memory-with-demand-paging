@@ -140,23 +140,23 @@ uint32_t returnSWStatistics(int type) {
     return result;
 }
 
-void constraintsCheck(uint32_t faults, uint32_t free, uint32_t replace, uint32_t reload, uint32_t disk, uint32_t zeroed, uint32_t elf, uint32_t swapfile) {
-    if (faults == (free + replace)) {
-        kprintf("CORRECT: the sum of tlb_faults_with_free and tlb_faults_with_replace is equal to tlb_faults\n");
+void constraintsCheck(uint32_t tlbFaults, uint32_t tlbFree, uint32_t tlbReplace, uint32_t tlbReload, uint32_t disk, uint32_t zeroed, uint32_t elf, uint32_t swapfile) {
+    if (tlbFaults == (tlbFree + tlbReplace)) {
+        kprintf("CORRECT: the sum of TLB Faults with Free and TLB Faults with Replace is equal to TLB Faults\n");
     } else {
-        kprintf("WARNING: the sum of tlb_faults_with_free and tlb_faults_with_replace is not equal to tlb_faults\n");
+        kprintf("WARNING: the sum of TLB Faults with Free and TLB Faults with Replace is not equal to TLB Faults\n");
     }
 
-    if (faults == (reload + disk + zeroed)) {
-        kprintf("CORRECT: the sum of tlb_reload, pt_faults_disk and pt_faults_zeroed is equal to tlb_faults\n");
+    if (tlbFaults == (tlbReload + disk + zeroed)) {
+        kprintf("CORRECT: the sum of TLB Reloads, Page Faults Disk and Page Faults Zeroed is equal to TLB Faults\n");
     } else {
-        kprintf("WARNING: the sum of tlb_reload, pt_faults_disk and pt_faults_zeroed is not equal to tlb_faults\n");      
+        kprintf("WARNING: the sum of TLB reloads, Page Faults Disk and Page Faults Zeroed is not equal to TLB Faults\n");      
     }
 
     if (disk == (elf + swapfile)) {
-        kprintf("CORRECT: the sum of pt_faults_from_elf and pt_faults_from_swapfile is equal to tlb_faults_disk\n\n");
+        kprintf("CORRECT: the sum of Page Faults from ELF and Page Faults from Swapfile is equal to Page Faults (Disk)\n\n");
     } else {
-        kprintf("WARNING: the sum of pt_faults_from_elf and pt_faults_from_swapfile is not equal to tlb_faults_disk\n\n");      
+        kprintf("WARNING: the sum of Page Faults from ELF and Page Faults from Swapfile is not equal to Page Faults (Disk)\n\n");      
     }
 }
 
@@ -173,7 +173,7 @@ void printStatistics(void) {
     uint32_t pt_swapfile_writes = returnSWStatistics(SWAPFILE_WRITES);
 
     kprintf("\nTLB statistics:\n"
-            "\tTLB faults = %d\n"
+            "\tTLB Faults = %d\n"
             "\tTLB Faults with Free = %d\n"
             "\tTLB Faults with Replace = %d\n"
             "\tTLB Invalidations = %d\n"
@@ -189,5 +189,5 @@ void printStatistics(void) {
 
     kprintf("\nSwapfile writes = %d\n\n", pt_swapfile_writes);
 
-    constraintsCheck(tlb_faults, tlb_faults_with_free, tlb_faults_with_replace, tlb_reloads, pt_faults_zeroed, pt_faults_disk, pt_faults_from_elf, pt_faults_from_swapfile);
+    constraintsCheck(tlb_faults, tlb_faults_with_free, tlb_faults_with_replace, tlb_reloads, pt_faults_disk, pt_faults_zeroed, pt_faults_from_elf, pt_faults_from_swapfile);
 }

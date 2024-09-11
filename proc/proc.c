@@ -70,7 +70,7 @@ struct proc *kproc;
 struct proc *
 proc_search_pid(pid_t pid) {
   struct proc *p;
-  KASSERT(pid>=0&&pid<MAX_PROC);
+  KASSERT(pid>=1&&pid<=MAX_PROC);
   p = processTable.proc[pid];
   KASSERT(p->p_pid==pid);
   return p;

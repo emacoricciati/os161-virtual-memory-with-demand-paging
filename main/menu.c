@@ -143,7 +143,7 @@ common_prog(int nargs, char **args)
 
 		optimizeSwapfile();
 
-		kprintf("\nThread exited with code %d\n",exit);
+		kprintf("Thread exited with code %d\n",exit);
 
 	}
 	

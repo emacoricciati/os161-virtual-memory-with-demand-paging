@@ -24,7 +24,7 @@ void initPT(void){
     spinlock_init(&stealmem_lock);
     spinlock_acquire(&stealmem_lock);
     int nFrames;
-    nFrames = (mainbus_ramsize() - ram_stealmem(0))/PAGE_SIZE;               //number of frames in physical memory (= IPT size)
+    nFrames = (mainbus_ramsize() - ram_stealmem(0))/PAGE_SIZE;    //number of frames in physical memory (= IPT size)
     spinlock_release(&stealmem_lock);
 
     pt_info.pt = kmalloc(sizeof(struct pt_entry_s) * nFrames);   //one entry for each available frame
@@ -205,8 +205,6 @@ void freePages(pid_t pid){  // frees all pages from PT and the list using pid
 void freeContiguousPages(vaddr_t addr){
     int i, index, n_contig_pages;
 
-    paddr_t test = KVADDR_TO_PADDR(addr);
-    kprintf("%d",test);
     index = (KVADDR_TO_PADDR(addr) - pt_info.firstfreepaddr) / PAGE_SIZE;  //get the index in the IPT 
     n_contig_pages = pt_info.allocSize[index];        //get the number of contiguous allocated pages
 
@@ -219,7 +217,7 @@ void freeContiguousPages(vaddr_t addr){
 
     pt_info.allocSize[index]=-1;                              //clear the number of contiguous allocated pages
 
-    /*
+    
     if(curthread->t_in_interrupt == false){                     //if I'm in the interrupt i cannot acquire a lock
         lock_acquire(pt_info.pt_lock);
         cv_broadcast(pt_info.pt_cv,pt_info.pt_lock);            //Since we freed some pages, we wake up the processes waiting on the cv.
@@ -228,7 +226,7 @@ void freeContiguousPages(vaddr_t addr){
     else{
         cv_broadcast(pt_info.pt_cv,pt_info.pt_lock);
     }
-    */
+    
 
 }
 
@@ -247,7 +245,7 @@ void freePContiguousPages(paddr_t addr){
 
     pt_info.allocSize[index]=-1;                              //clear the number of contiguous allocated pages
 
-    /*
+    
     if(curthread->t_in_interrupt == false){                     //if I'm in the interrupt i cannot acquire a lock
         lock_acquire(pt_info.pt_lock);
         cv_broadcast(pt_info.pt_cv,pt_info.pt_lock);            //Since we freed some pages, we wake up the processes waiting on the cv.
@@ -256,7 +254,7 @@ void freePContiguousPages(paddr_t addr){
     else{
         cv_broadcast(pt_info.pt_cv,pt_info.pt_lock);
     }
-    */
+    
 
 }
 
@@ -293,6 +291,25 @@ paddr_t addInPT(vaddr_t v_addr, pid_t pid, int index){
     return (paddr_t) (pt_info.firstfreepaddr + index*PAGE_SIZE);
 }
 
+static int checkEntryValidity(uint8_t ctl){
+    if(GET_TLBBIT(ctl) != 0){
+        return 1;
+    }
+    if(GET_VALBIT(ctl)!=0){
+        return 1;
+    }
+    if(GET_KBIT(ctl) != 0){
+        return 1;
+    }
+    if(GET_IOBIT(ctl)!=0){
+        return 1;
+    }
+    if(GET_SWAPBIT(ctl)!=0){
+        return 1;
+    }
+    return 0;
+}
+
 
 paddr_t getContiguousPages(int nPages){
     int i, j, first=-1, prev=0, old_vdty;
@@ -309,14 +326,14 @@ paddr_t getContiguousPages(int nPages){
     //Option 1: searching for contiguos npages in order to avoid swapping
     for (i = 0; i < pt_info.ptSize; i++){
         if(i!=0){           //Checking the validity of the previous entry
-            prev = GET_KBIT(pt_info.pt[i-1].ctl) || (GET_VALBIT(pt_info.pt[i-1].ctl) && GET_REFBIT(pt_info.pt[i-1].ctl)) ? 1 : 0; 
+            prev = checkEntryValidity(pt_info.pt[i-1].ctl);
         }
         if(GET_VALBIT(pt_info.pt[i].ctl)==0 && GET_TLBBIT(pt_info.pt[i].ctl)==0 && GET_KBIT(pt_info.pt[i].ctl)==0 && GET_IOBIT(pt_info.pt[i].ctl)==0 && GET_SWAPBIT(pt_info.pt[i].ctl)==0 && (i==0 || prev)){  //checking if the current entry is not valid while the previous one was valid (or if the first entry is not valid)
             first=i; 
         } 
         if(first>=0 && GET_VALBIT(pt_info.pt[i].ctl)==0 && GET_TLBBIT(pt_info.pt[i].ctl)==0 && GET_SWAPBIT(pt_info.pt[i].ctl)==0 && GET_IOBIT(pt_info.pt[i].ctl)==0 &&  GET_KBIT(pt_info.pt[i].ctl)==0 && i-first==nPages-1){ //We found npages contiguous entries
             //we are allocating with kmalloc
-            DEBUG(DB_EXEC,"Kmalloc for process %d entry %d\n",curproc->p_pid,first);
+            DEBUG(DB_VM,"Kmalloc for process %d entry %d\n",curproc->p_pid,first);
             for(j=first;j<=i;j++){
                 KASSERT(GET_KBIT(pt_info.pt[j].vPage)==0);          
                 KASSERT(GET_VALBIT(pt_info.pt[j].ctl)==0);
@@ -336,18 +353,18 @@ paddr_t getContiguousPages(int nPages){
     //Option 2: we perform victim selection because table is full
     while(1){  //Exit only when we find n contiguous victims
         for (i = next_victim; i < pt_info.ptSize; i++){
-            if (GET_KBIT(pt_info.pt[i].vPage) == 0 && GET_TLBBIT(pt_info.pt[i].ctl) == 0 && GET_IOBIT(pt_info.pt[i].ctl) == 0 && GET_SWAPBIT(pt_info.pt[i].ctl) == 0){ //Checking if the entry can be removed
+            if (GET_KBIT(pt_info.pt[i].ctl) == 0 && GET_TLBBIT(pt_info.pt[i].ctl) == 0 && GET_IOBIT(pt_info.pt[i].ctl) == 0 && GET_SWAPBIT(pt_info.pt[i].ctl) == 0){ //Checking if the entry can be removed
                 if(GET_REFBIT(pt_info.pt[i].ctl) && GET_VALBIT(pt_info.pt[i].ctl)){ //If the page is valid and has reference=1 we set reference=0 (due to second chance algorithm) and we continue
                     pt_info.pt[i].ctl = SET_REFBITZERO(pt_info.pt[i].ctl);
                     continue;
                 }
-                int valid= GET_KBIT(pt_info.pt[i].ctl) || (GET_VALBIT(pt_info.pt[i].ctl) && GET_REFBIT(pt_info.pt[i].ctl)) ? 1 : 0;
+                int valid= checkEntryValidity(pt_info.pt[i].ctl);
                 if ((GET_REFBIT(pt_info.pt[i].ctl) == 0 || GET_VALBIT(pt_info.pt[i].ctl) == 0) && (i==0 || valid)){//If the current entry can be removed and the previous is valid, i is the start of the interval
                     first = i;
                 }
                 if(first>=0 && (GET_REFBIT(pt_info.pt[i].ctl) == 0 || GET_VALBIT(pt_info.pt[i].ctl) == 0) && i-first==nPages-1){ //We found npages contiguous entries that can be removed
                     for(j=first;j<=i;j++){
-                        KASSERT(GET_KBIT(pt_info.pt[j].vPage)==0);
+                        KASSERT(GET_KBIT(pt_info.pt[j].ctl)==0);
                         KASSERT(GET_REFBIT(pt_info.pt[j].ctl)==0 || GET_VALBIT(pt_info.pt[j].ctl)==0);
                         KASSERT(GET_TLBBIT(pt_info.pt[j].ctl)==0);
                         KASSERT(GET_IOBIT(pt_info.pt[j].ctl)==0);
@@ -357,7 +374,8 @@ paddr_t getContiguousPages(int nPages){
                         old_vdty = GET_VALBIT(pt_info.pt[j].ctl);
                         // replace entry
                         pt_info.pt[j].ctl = 0;
-                        addInPT(0, curproc->p_pid, j);
+                        // passing 1 as vaddr to addInPT, because we don't need to store the vaddr in the pt (avoid assertion failure)
+                        addInPT(1, curproc->p_pid, j);
                         pt_info.pt[j].ctl = SET_KBITONE(pt_info.pt[j].ctl); //To remember that this page can't be swapped out until when we perform a free
                         pt_info.pt[j].ctl = SET_VALBITONE(pt_info.pt[j].ctl); //Set pages as valid
                         if(old_vdty){
@@ -432,7 +450,7 @@ void copyPTEntries(pid_t old, pid_t new){ // needed for fork
             if(pos==-1){
                 KASSERT(GET_IOBIT(pt_info.pt[i].ctl) == 0);
                 KASSERT(GET_SWAPBIT(pt_info.pt[i].ctl) != 0);
-                KASSERT(GET_KBIT(pt_info.pt[i].ctl) != 0);
+                KASSERT(GET_KBIT(pt_info.pt[i].ctl) == 0);
                 DEBUG(DB_VM,"Copy from pt address 0x%x for process %d\n",pt_info.pt[i].vPage,new);
                 // The page is saved in the swap file, which will be associated with the new PID.
                 storeSwapFrame(pt_info.pt[i].vPage,new,pt_info.firstfreepaddr+i*PAGE_SIZE); 
@@ -441,7 +459,8 @@ void copyPTEntries(pid_t old, pid_t new){ // needed for fork
                 pt_info.pt[pos].ctl = 0;
                 addInPT(pt_info.pt[i].vPage,new,pos);
                 pt_info.pt[pos].ctl = SET_VALBITONE(pt_info.pt[pos].ctl);
-                memmove((void *)PADDR_TO_KVADDR(pt_info.firstfreepaddr + pos*PAGE_SIZE),(void *)PADDR_TO_KVADDR(pt_info.firstfreepaddr + i*PAGE_SIZE), PAGE_SIZE); //It's a copy within RAM, so we can use memmove. The reason to use PADDR_TO_KVADDR is explained in swapfile.c
+                //It's a copy within RAM, memmove can be used. The reason to use PADDR_TO_KVADDR is explained in swapfile.c
+                memmove((void *)PADDR_TO_KVADDR(pt_info.firstfreepaddr + pos*PAGE_SIZE),(void *)PADDR_TO_KVADDR(pt_info.firstfreepaddr + i*PAGE_SIZE), PAGE_SIZE); 
                 KASSERT(GET_IOBIT(pt_info.pt[pos].ctl)==0);
                 KASSERT(GET_TLBBIT(pt_info.pt[pos].ctl)==0);
                 KASSERT(GET_SWAPBIT(pt_info.pt[pos].ctl)==0);
@@ -460,7 +479,7 @@ void copyPTEntries(pid_t old, pid_t new){ // needed for fork
 void prepareCopyPT(pid_t pid){
 
     for(int i=0;i<pt_info.ptSize;i++){
-        if(pt_info.pt[i].pid == pid && GET_KBIT(pt_info.pt[i].vPage) == 0 && GET_VALBIT(pt_info.pt[i].ctl)){
+        if(pt_info.pt[i].pid == pid && GET_KBIT(pt_info.pt[i].vPage) == 0 && GET_VALBIT(pt_info.pt[i].ctl) != 0){
             KASSERT(GET_IOBIT(pt_info.pt[i].ctl)==0);
             //To freeze the current situation we set the swap bit to 1.  This is done to
             // avoid inconsistencies between the situation at the beginning and at the end of the swapping process.

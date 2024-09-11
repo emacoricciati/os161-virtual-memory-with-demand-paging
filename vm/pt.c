@@ -56,7 +56,7 @@ void initPT(void){
         pt_info.allocSize[i]=-1;
     }
 
-    DEBUG(DB_VM,"RAM INFO:\n\tSize :0x%x\n\tFirst free physical address: 0x%x\n\tAvailable memory: 0x%x\n\n",mainbus_ramsize(),ram_stealmem(0),mainbus_ramsize()-ram_stealmem(0));
+    DEBUG(DB_IPT,"RAM INFO:\n\tSize :0x%x\n\tFirst free physical address: 0x%x\n\tAvailable memory: 0x%x\n\n",mainbus_ramsize(),ram_stealmem(0),mainbus_ramsize()-ram_stealmem(0));
 
     pt_info.firstfreepaddr = ram_stealmem(0); //ram_stealmem(0) returns the first free physical address (=from where our IPT starts)
     pt_info.ptSize = ((mainbus_ramsize() - ram_stealmem(0)) / PAGE_SIZE) - 1; // -1 because the first frame is used for the IPT  
@@ -95,7 +95,7 @@ paddr_t getFramePT(vaddr_t v_addr){
         return p_addr;
     }
 
-    DEBUG(DB_VM,"PID=%d wants to load 0x%x\n",current_pid,v_addr);
+    DEBUG(DB_IPT,"PID=%d wants to load 0x%x\n",current_pid,v_addr);
     // virtual address is not available in the page table, searching free entry in the pt
     int entry = findFreeEntryPT();
     if(entry != -1){
@@ -134,9 +134,10 @@ int findVictim(vaddr_t v_addr, pid_t pid){
                 // victim is found
                 KASSERT(GET_KBIT(pt_info.pt[i].ctl)==0); // no kmalloc
                 KASSERT(GET_VALBIT(pt_info.pt[i].ctl)); // valid entry
-                KASSERT(GET_SWAPBIT(pt_info.pt[i].ctl)==0); // not in swap
-                KASSERT(GET_IOBIT(pt_info.pt[i].ctl)==0); // no I/O operation
+                KASSERT(GET_SWAPBIT(pt_info.pt[i].ctl)==0); // not in fork operation
+                KASSERT(GET_IOBIT(pt_info.pt[i].ctl)==0); // no I/O operation on swap file
                 KASSERT(GET_TLBBIT(pt_info.pt[i].ctl)==0); // not in TLB
+
                 /** To address synchronization problems, all new values must be 
                  * assigned prior to performing load/store operations, specifically 
                  * before entering a sleep state.
@@ -148,13 +149,12 @@ int findVictim(vaddr_t v_addr, pid_t pid){
                 old_vdty = GET_VALBIT(pt_info.pt[i].ctl);  
                 pt_info.pt[i].ctl = 0; // clear bits
                 addInPT(v_addr, pid, i); // add and replace the old entry
-                pt_info.pt[i].ctl = SET_IOBITONE(pt_info.pt[i].ctl); // I/O operation
-                pt_info.pt[i].ctl = SET_VALBITONE(pt_info.pt[i].ctl);
+                pt_info.pt[i].ctl = SET_IOBITONE(pt_info.pt[i].ctl); // start I/O operation
+                pt_info.pt[i].ctl = SET_VALBITONE(pt_info.pt[i].ctl); // now the entry is valid
                 if(old_vdty){
                     // if the page was valid, store it in the swap file
-                    storeSwapFrame(old_vaddr, old_pid, pt_info.firstfreepaddr + i*PAGE_SIZE);  //swap   
+                    storeSwapFrame(old_vaddr, old_pid, pt_info.firstfreepaddr + i*PAGE_SIZE);  //swap 
                 }
-                //addInPT(v_addr, pid, i); // TODO: maybe it's bettere to do this later?
                 next_victim = (i+1) % pt_info.ptSize; // next victim for next time
                 return i;
             }
@@ -182,7 +182,7 @@ int findVictim(vaddr_t v_addr, pid_t pid){
 
 }
 
-void freePages(pid_t pid){  // frees all pages from PT and the list using pid
+void freePages(pid_t pid){  // frees all pages from PT using pid
 
     for (int i = 0; i < pt_info.ptSize; i++){
         if (pt_info.pt[i].pid == pid){
@@ -230,34 +230,6 @@ void freeContiguousPages(vaddr_t addr){
 
 }
 
-void freePContiguousPages(paddr_t addr){
-    int i, index, n_contig_pages;
-
-    index = (addr - pt_info.firstfreepaddr) / PAGE_SIZE;  //get the index in the IPT 
-    n_contig_pages = pt_info.allocSize[index];        //get the number of contiguous allocated pages
-
-   
-    for(i=index;i<index+n_contig_pages;i++){
-        KASSERT(GET_KBIT(pt_info.pt[i].ctl));                       //page assigned with kmalloc
-        pt_info.pt[i].ctl = SET_VALBITZERO(pt_info.pt[i].ctl);      //valid bit = 0 -> page not valid anymore
-        pt_info.pt[i].ctl = SET_KBITZERO(pt_info.pt[i].ctl);        //clear kmalloc bit                                               
-    }
-
-    pt_info.allocSize[index]=-1;                              //clear the number of contiguous allocated pages
-
-    
-    if(curthread->t_in_interrupt == false){                     //if I'm in the interrupt i cannot acquire a lock
-        lock_acquire(pt_info.pt_lock);
-        cv_broadcast(pt_info.pt_cv,pt_info.pt_lock);            //Since we freed some pages, we wake up the processes waiting on the cv.
-        lock_release(pt_info.pt_lock);
-    }
-    else{
-        cv_broadcast(pt_info.pt_cv,pt_info.pt_lock);
-    }
-    
-
-}
-
 int getIndexFromPT(vaddr_t vad, pid_t pid){  
     for (int i = 0; i < pt_info.ptSize; i++){
         if (pt_info.pt[i].pid == pid && pt_info.pt[i].vPage == vad){
@@ -269,7 +241,7 @@ int getIndexFromPT(vaddr_t vad, pid_t pid){
     return -1; //not found
 }
 
-void removeFromPT(vaddr_t vad, pid_t pid) { // insert again in unusedptrlist ???
+void removeFromPT(vaddr_t vad, pid_t pid) {
     int i=getIndexFromPT(vad, pid);
     if(i==-1){
         kprintf("Page not found\n");
@@ -317,7 +289,7 @@ paddr_t getContiguousPages(int nPages){
     pid_t old_pid;
     vaddr_t old_vaddr;
 
-    DEBUG(DB_EXEC,"Process %d performs kmalloc for %d pages\n", curproc->p_pid,nPages);
+    DEBUG(DB_IPT,"Process %d performs kmalloc for %d pages\n", curproc->p_pid,nPages);
 
     if (nPages > pt_info.ptSize){
         panic("Can't do kmalloc, not enough memory"); //Impossible allocation
@@ -333,7 +305,7 @@ paddr_t getContiguousPages(int nPages){
         } 
         if(first>=0 && GET_VALBIT(pt_info.pt[i].ctl)==0 && GET_TLBBIT(pt_info.pt[i].ctl)==0 && GET_SWAPBIT(pt_info.pt[i].ctl)==0 && GET_IOBIT(pt_info.pt[i].ctl)==0 &&  GET_KBIT(pt_info.pt[i].ctl)==0 && i-first==nPages-1){ //We found npages contiguous entries
             //we are allocating with kmalloc
-            DEBUG(DB_VM,"Kmalloc for process %d entry %d\n",curproc->p_pid,first);
+            DEBUG(DB_IPT,"Kmalloc for process %d, entry: %d\n",curproc->p_pid,first);
             for(j=first;j<=i;j++){
                 KASSERT(GET_KBIT(pt_info.pt[j].vPage)==0);          
                 KASSERT(GET_VALBIT(pt_info.pt[j].ctl)==0);
@@ -342,7 +314,6 @@ paddr_t getContiguousPages(int nPages){
                 KASSERT(GET_SWAPBIT(pt_info.pt[j].ctl)==0);
                 pt_info.pt[j].ctl=SET_VALBITONE(pt_info.pt[j].ctl);   //Set pages as valid
                 pt_info.pt[j].ctl=SET_KBITONE(pt_info.pt[j].ctl);     //This page can't be swapped out until when we perform a free on it
-                //pt_info.pt[j].pid = curproc->p_pid;       //vaddr and pid are useless here since kernel uses a different address translation (i.e. it doesn't access the IPT to get their physical address)
             }
             pt_info.allocSize[first] = nPages; //We save in position first the number of contiguous pages allocated. It'll be useful while freeing
             return first * PAGE_SIZE + pt_info.firstfreepaddr;
@@ -413,8 +384,6 @@ int tlbUpdateBit(vaddr_t v, pid_t pid)
 
     int i;
 
-    DEBUG(DB_TLB,"Update tlb bit, vaddr=0x%x, pid=%d\n",v,pid);
-
     for (i = 0; i < pt_info.ptSize; i++)
     {
         if (pt_info.pt[i].vPage == v && pt_info.pt[i].pid==pid && GET_VALBIT(pt_info.pt[i].ctl)==1) // Page found
@@ -451,11 +420,11 @@ void copyPTEntries(pid_t old, pid_t new){ // needed for fork
                 KASSERT(GET_IOBIT(pt_info.pt[i].ctl) == 0);
                 KASSERT(GET_SWAPBIT(pt_info.pt[i].ctl) != 0);
                 KASSERT(GET_KBIT(pt_info.pt[i].ctl) == 0);
-                DEBUG(DB_VM,"Copy from pt address 0x%x for process %d\n",pt_info.pt[i].vPage,new);
+                DEBUG(DB_IPT,"Copy from pt address 0x%x for process %d\n",pt_info.pt[i].vPage,new);
                 // The page is saved in the swap file, which will be associated with the new PID.
                 storeSwapFrame(pt_info.pt[i].vPage,new,pt_info.firstfreepaddr+i*PAGE_SIZE); 
             }
-            else{ //There isn't a valid page that can be used to store the page
+            else{ //There is a valid page that can be used to store the page
                 pt_info.pt[pos].ctl = 0;
                 addInPT(pt_info.pt[i].vPage,new,pos);
                 pt_info.pt[pos].ctl = SET_VALBITONE(pt_info.pt[pos].ctl);
@@ -497,10 +466,10 @@ void endCopyPT(pid_t pid){
         }
     }
 
-    lock_acquire(pt_info.pt_lock);
     /** As the pages that were previously swapped can now be selected as victims, 
      * all processes waiting on the condition variable are awakened.
     **/
+    lock_acquire(pt_info.pt_lock);
     cv_broadcast(pt_info.pt_cv,pt_info.pt_lock); 
     lock_release(pt_info.pt_lock);
 

@@ -35,10 +35,10 @@ sys__exit(int status)
   struct proc *p = curproc;
   #if OPT_FINAL
   freePages(p->p_pid);
-  freeProcessPagesInSwap(p->p_pid);                       //Added
+  freeProcessPagesInSwap(p->p_pid);                     
   #endif
 
-  DEBUG(DB_VM,"Process %d ending\n",curproc->p_pid);      //Added
+  DEBUG(DB_VM,"Process %d ending\n",curproc->p_pid);
 
   p->p_status = status & 0xff; /* just lower 8 bits returned */
   proc_remthread(curthread);

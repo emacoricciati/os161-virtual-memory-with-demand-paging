@@ -9,7 +9,7 @@ void printPageLists(pid_t pid){
 
     struct swapPage *i;
 
-    kprintf("*** SWAP PAGE LIST FOR PROCESS %d: ***\n",pid);
+    kprintf("\tSWAP PAGE LIST FOR PROCESS %d:\n",pid);
     kprintf("Text:\n");
     for(i=sf->textPages[pid];i!=NULL;i=i->next){
         kprintf("addr: 0x%x, offset: 0x%x, next: 0x%x\n",i->vaddr,i->swapOffset,(unsigned int)i->next);
@@ -49,7 +49,7 @@ int initSwapfile(void){
 
     sf->sizeSF = MAX_SIZE/PAGE_SIZE;//Pages in the swap file
 
-    sf->kbuf = kmalloc(PAGE_SIZE); //Allocating a buffer for copying swap pages, (one time allocation)
+    sf->kbuf = kmalloc(PAGE_SIZE); //Allocating a buffer for copying swap pages (one time allocation)
     if(!sf->kbuf){
         panic("Fatal error: failed to allocate kbuf");
     }
@@ -139,15 +139,15 @@ int loadSwapFrame(vaddr_t vaddr, pid_t pid, paddr_t paddr){
     while(listPages!=NULL){
         if(listPages->vaddr==vaddr){ //Entry found
 
-            //As a consequence of parallelism we have to follow a specific order in the operations
-            //-1: Remove the entry from the process list, otherwise the old entry could be considered valid
-            //-2: I/0 Operation, but with the exception that the entry can't be placed in the free list
-            //-3: Place the entry inside the free list (so after the I/O operation has been completed)
+            /** As a consequence of parallelism we have to follow a specific order in the operations
+             *1: Remove the entry from the process list, otherwise the old entry could be considered valid
+             *2: I/0 Operation, but with the exception that the entry can't be placed in the free list
+             *3: Place the entry inside the free list (so after the I/O operation has been completed)
+            **/
 
             if(prevPages!=NULL){ //If List is not the first entry
                 KASSERT(prevPages->next==listPages);
-                DEBUG(DB_VM,"We removed 0x%x from process %d, so now 0x%x points to 0x%x\n",vaddr,pid,prevPages!=NULL?prevPages->vaddr:(unsigned int)NULL,prevPages->next->vaddr);
-                prevPages->next=listPages->next;      //remove list from the process list
+                prevPages->next=listPages->next;     //Removing the entry from the process list
             }
             else{                       //Removing from head
                 if(segVar==0){
@@ -167,7 +167,7 @@ int loadSwapFrame(vaddr_t vaddr, pid_t pid, paddr_t paddr){
             }
             lock_release(listPages->operationLock);
             
-            DEBUG(DB_VM,"Loading swap of vaddr 0x%x in 0x%x for process %d\n",vaddr, listPages->swapOffset, pid);
+            DEBUG(DB_SWAP,"Loading swap of vaddr 0x%x in 0x%x for process %d\n",vaddr, listPages->swapOffset, pid);
 
             incrementStatistics(FAULT_DISK);               //Update of the statistics  
 
@@ -177,9 +177,10 @@ int loadSwapFrame(vaddr_t vaddr, pid_t pid, paddr_t paddr){
             if(result){
                 panic("Fatal error: VOP_READ for swapfile failed with result=%d",result);
             }
-            DEBUG(DB_VM,"Loading swap of vaddr 0x%x in 0x%x for process %d ended\n",listPages->vaddr, listPages->swapOffset, pid);
+            DEBUG(DB_SWAP,"Loading swap of vaddr 0x%x in 0x%x for process %d ended\n",listPages->vaddr, listPages->swapOffset, pid);
 
-            listPages->next=sf->freePages;                      // put the entry in the free list
+            // put the entry in the free list
+            listPages->next=sf->freePages;                      
             sf->freePages=listPages;
 
             incrementStatistics(FAULT_FROM_SWAPFILE);               //Update of the statistics
@@ -219,7 +220,7 @@ int storeSwapFrame(vaddr_t vaddr, pid_t pid, paddr_t paddr){
      *    - Do not insert it into the process's swap list before the I/O operation completes.
      *    - This prevents inconsistencies where the process might attempt to access the swap entry prematurely.
      * 2. During the store operation, the page cannot be accessed as it contains invalid data.
-     *    - Use the `store` flag to indicate an ongoing store operation for the frame.
+     *    - Use the `isStoreOp` flag to indicate an ongoing store operation for the frame.
     */
 
     free_frame = sf->freePages;    //first free frame from the swap's free list
@@ -260,7 +261,7 @@ int storeSwapFrame(vaddr_t vaddr, pid_t pid, paddr_t paddr){
 
     free_frame->vaddr = vaddr; //assign the virtual address to the swap frame
 
-    DEBUG(DB_VM, "STORE SWAP in 0x%x (virtual: 0x%x) for process %d\n", free_frame->swapOffset, free_frame->vaddr, pid);
+    DEBUG(DB_SWAP, "Swap store in 0x%x (virtual: 0x%x) for process %d started\n", free_frame->swapOffset, free_frame->vaddr, pid);
     
     free_frame->isStoreOp = 1; //the frame is being stored
 
@@ -279,8 +280,8 @@ int storeSwapFrame(vaddr_t vaddr, pid_t pid, paddr_t paddr){
     cv_broadcast(free_frame->operationCV, free_frame->operationLock);
     lock_release(free_frame->operationLock);
 
-    DEBUG(DB_VM, "ENDED STORE SWAP in 0x%x (virtual: 0x%x) for process %d\n", free_frame->swapOffset, free_frame->vaddr, pid);
-    DEBUG(DB_VM, "We added 0x%x to process %d, that points to 0x%x\n", vaddr, pid, free_frame->next ? free_frame->next->vaddr : 0x0);
+    DEBUG(DB_SWAP, "Swap store in 0x%x (virtual: 0x%x) for process %d ended\n", free_frame->swapOffset, free_frame->vaddr, pid);
+    DEBUG(DB_SWAP, "0x%x added to process %d, that points to 0x%x\n", vaddr, pid, free_frame->next ? free_frame->next->vaddr : 0x0);
 
     incrementStatistics(SWAPFILE_WRITES); 
     return 1; 
@@ -289,10 +290,6 @@ int storeSwapFrame(vaddr_t vaddr, pid_t pid, paddr_t paddr){
 
 void freeProcessPagesInSwap(pid_t pid){
     struct swapPage *elem, *next;
-
-    #if OPT_DEBUG
-    int r = 0;
-    #endif
 
     //We iterate on text, data and stack lists because we have to remove all the elements that belong to the ended process
 
@@ -311,15 +308,7 @@ void freeProcessPagesInSwap(pid_t pid){
         sf->textPages[pid]=NULL;
     }
 
-
-    //COMMENTA TU QUI
     if(sf->dataPages[pid]!=NULL){
-        #if OPT_DEBUG
-        if(r==0){                                             //if r is equal to 0 we remove thre process from swap
-            DEBUG(DB_VM,"FIRST REMOVE PROCESS FROM SWAP\n");
-            r++;
-        }
-        #endif
         for(elem=sf->dataPages[pid];elem!=NULL;elem=next){
             lock_acquire(elem->operationLock);
             while(elem->isStoreOp){
@@ -335,12 +324,6 @@ void freeProcessPagesInSwap(pid_t pid){
     }
 
     if(sf->stackPages[pid]!=NULL){
-        #if OPT_DEBUG
-        if(r==0){
-            DEBUG(DB_VM,"FIRST REMOVE PROCESS FROM SWAP\n");
-            r++;
-        }
-        #endif
         for(elem=sf->stackPages[pid];elem!=NULL;elem=next){
             lock_acquire(elem->operationLock);
             while(elem->isStoreOp){
@@ -358,7 +341,7 @@ void freeProcessPagesInSwap(pid_t pid){
 
 void duplicateSwapPages(pid_t new_pid, pid_t old_pid) {
     // Log the start of the fork operation
-    DEBUG(DB_VM,"Process %d performs a kmalloc to fork %d\n",curproc->p_pid,new_pid);
+    DEBUG(DB_SWAP,"Process %d performs a kmalloc to fork %d\n",curproc->p_pid,new_pid);
 
     struct uio u;                //user I/O structure for I/O operations
     struct iovec iov;            //I/O vector structure for scatter/gather I/O
@@ -389,7 +372,7 @@ void duplicateSwapPages(pid_t new_pid, pid_t old_pid) {
             }
             lock_release(ptr->operationLock);
 
-            DEBUG(DB_VM,"Copying from 0x%x to 0x%x\n",ptr->swapOffset,free->swapOffset);
+            DEBUG(DB_SWAP,"Copying from 0x%x to 0x%x\n",ptr->swapOffset,free->swapOffset);
 
             // read the page from the old process's swap entry into the kernel buffer
             uio_kinit(&iov, &u, sf->kbuf, PAGE_SIZE, ptr->swapOffset, UIO_READ);
@@ -405,7 +388,7 @@ void duplicateSwapPages(pid_t new_pid, pid_t old_pid) {
                 panic("VOP_WRITE in swapfile failed, with result=%d", result);  //write failure
             }
 
-            DEBUG(DB_VM,"Copied text from 0x%x to 0x%x for process %d\n",ptr->vaddr,free->vaddr,new_pid);
+            DEBUG(DB_SWAP,"Copied text from 0x%x to 0x%x for process %d\n",ptr->vaddr,free->vaddr,new_pid);
             free->vaddr = ptr->vaddr; //set virtual address for the new swap entry
         }
     }
@@ -433,7 +416,7 @@ void duplicateSwapPages(pid_t new_pid, pid_t old_pid) {
             }
             lock_release(ptr->operationLock);
 
-            DEBUG(DB_VM,"Copying from 0x%x to 0x%x\n",ptr->swapOffset,free->swapOffset);
+            DEBUG(DB_SWAP,"Copying from 0x%x to 0x%x\n",ptr->swapOffset,free->swapOffset);
 
             // Read the page from the old process's swap entry into the kernel buffer
             uio_kinit(&iov, &u, sf->kbuf, PAGE_SIZE, ptr->swapOffset, UIO_READ);
@@ -449,7 +432,7 @@ void duplicateSwapPages(pid_t new_pid, pid_t old_pid) {
                 panic("VOP_WRITE in swapfile failed, with result=%d", result);  //write failure
             }
 
-            DEBUG(DB_VM,"Copied data from 0x%x to 0x%x for process %d\n",ptr->vaddr,free->vaddr,new_pid);
+            DEBUG(DB_SWAP,"Copied data from 0x%x to 0x%x for process %d\n",ptr->vaddr,free->vaddr,new_pid);
             free->vaddr = ptr->vaddr; //set virtual address for the new swap entry
         }
     }
@@ -477,7 +460,7 @@ void duplicateSwapPages(pid_t new_pid, pid_t old_pid) {
             }
             lock_release(ptr->operationLock);
 
-            DEBUG(DB_VM,"Copying from 0x%x to 0x%x\n",ptr->swapOffset,free->swapOffset);
+            DEBUG(DB_SWAP,"Copying from 0x%x to 0x%x\n",ptr->swapOffset,free->swapOffset);
 
             // Read the page from the old process's swap entry into the kernel buffer
             uio_kinit(&iov, &u, sf->kbuf, PAGE_SIZE, ptr->swapOffset, UIO_READ);
@@ -493,7 +476,7 @@ void duplicateSwapPages(pid_t new_pid, pid_t old_pid) {
                 panic("VOP_WRITE in swapfile failed, with result=%d", result);  //write failure
             }
 
-            DEBUG(DB_VM,"Copied stack from 0x%x to 0x%x for process %d\n",ptr->vaddr,free->vaddr,new_pid);
+            DEBUG(DB_SWAP,"Copied stack from 0x%x to 0x%x for process %d\n",ptr->vaddr,free->vaddr,new_pid);
             free->vaddr = ptr->vaddr; //set virtual address for the new swap entry
         }
     }

@@ -37,7 +37,7 @@ int vm_fault(int faulttype, vaddr_t faultaddress){
     appropriate exception (no need to panic, kernel should not crash)*/
     case VM_FAULT_READONLY:
         kprintf("Attempted to write to a read-only segment. Terminating process...");
-        sys__exit(0); // TODO: try to exit using VM_FAULT_READONLY
+        sys__exit(0);
         break;
     default:
         break;
@@ -76,7 +76,6 @@ int tlbInsert(vaddr_t faultvaddr, paddr_t faultpaddr){
                     /*Set a dirty bit (write privilege)*/
                     lo = lo | TLBLO_DIRTY; 
                 }
-            //lo = lo | TLBLO_DIRTY;  // TODO: try later (on demand paging)
             tlb_write(hi, lo, entry);
             // update the statistic
             incrementStatistics(FAULT_WITH_FREE);

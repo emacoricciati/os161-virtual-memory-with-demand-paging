@@ -76,10 +76,10 @@
 /*
  * Bit flags for DEBUG()
  */
-#define DB_LOCORE      0x0001
+#define DB_IPT         0x0001
 #define DB_SYSCALL     0x0002
-#define DB_INTERRUPT   0x0004
-#define DB_DEVICE      0x0008
+#define DB_TLB         0x0004
+#define DB_SWAP        0x0008
 #define DB_THREADS     0x0010
 #define DB_VM          0x0020
 #define DB_EXEC        0x0040
@@ -89,9 +89,6 @@
 #define DB_NET         0x0400
 #define DB_NETFS       0x0800
 #define DB_KMALLOC     0x1000
-#define DB_IPT         0x1200
-#define DB_TLB         0x1400
-#define DB_SWAP        0x1600
 
 extern uint32_t dbflags;
 

@@ -150,6 +150,178 @@ void tlbInvalidate(void){
 }
 ```
 
+# TLB statistics
+
+## Statistics
+
+The following statistics have been collected  throghuout the excecution of the programs:
+
+1. **TLB Faults: -** (`tlb_faults`)
+    -  The number of TLB misses that have occurred (not including faults that cause a program to crash).
+2. **TLB Faults with Free: -** (`tlb_free_faults`)
+    - TThe number of TLB misses for which there was free space in the TLB to add the new TLB entry (i.e., no replacement is required). 
+3. **TLB Faults with Replace:  -** (`tlb_replace_faults`)
+    -  The number of TLB misses for which there was no free space for the 
+new TLB entry, so replacement was required.
+4. **TLB Invalidations: -**  (`tlb_invalidations`)
+    - The number of times the TLB was invalidated (this counts the number 
+times the entire TLB is invalidated NOT the number of TLB entries invalidated).
+5. **TLB Reloads** (`tlb_reloads`)
+    - The number of TLB misses for pages that were already in memory.
+6. **Page Faults (Zeroed): -** - (`pt_zeroed_faults`)
+    - The number of TLB misses that required a new page to be zero
+filled.
+7. **Page Faults (Disk): -**  - (`pt_disk_faults`)
+    - The number of TLB misses that required a page to be loaded from disk.
+8. **Page Faults From ELF** - (`pt_elf_faults`)
+    -  The number of page faults that require getting a page from the ELF file. 
+9. **Page Faults from Swapfile: -**  - (`pt_swapfile_faults`)
+    - The number of page faults that require getting a page from the swap 
+file. 
+10. **Swapfile Writes: -**  - (`swap_writes`)
+    - The number of page faults that require writing a page to the swap file.
+
+## Constraints
+
+To check if the statistics have been collected correctly, Some constraints have to be respected.
+
+- **Constraint 1: -** TLB Faults with Free + TLB Faults with Replace = TLB Faults
+- **Constraint 2: -** TLB Reloads + “Page Faults (Disk) + Page Faults (Zeroed) = TLB Faults
+- **Constraint 3: -** Page Faults from ELF + Page Faults from Swapfile = Page Faults (Disk)
+
+
+## Functions
+
+### void incrementStatistics(int type)
+
+This function increments the appropriate TLB or page table statistic based on the type parameter, which corresponds to predefined macros.
+It acquires and releases spinlocks for the statistics_tlb and statistics_pt structures to ensure only one writing at a time.
+
+```c
+#define FAULT 0
+#define FAULT_WITH_FREE 1
+#define FAULT_WITH_REPLACE 2
+#define INVALIDATION 3
+#define RELOAD 4
+#define FAULT_ZEROED 5
+#define FAULT_DISK 6
+#define FAULT_FROM_ELF 7
+#define FAULT_FROM_SWAPFILE 8
+#define SWAPFILE_WRITES 9
+
+void incrementStatistics(int type) {
+    spinlock_acquire(&statistics_tlb.lock);
+    spinlock_acquire(&statistics_pt.lock);
+
+    switch (type) {
+        case FAULT:
+            statistics_tlb.tlb_faults++;
+            break;
+        case FAULT_WITH_FREE:
+            statistics_tlb.tlb_faults_with_free++;
+            break;
+        case FAULT_WITH_REPLACE:
+            statistics_tlb.tlb_faults_with_replace++;
+            break;
+        case INVALIDATION:
+            statistics_tlb.tlb_invalidations++;
+            break;
+        case RELOAD:
+            statistics_tlb.tlb_reloads++;
+            break;
+        case FAULT_ZEROED:
+            statistics_pt.pt_faults_zeroed++;
+            break;
+        case FAULT_DISK:
+            statistics_pt.pt_faults_disk++;
+            break;
+        case FAULT_FROM_ELF:
+            statistics_pt.pt_faults_from_elf++;
+            break;
+        case FAULT_FROM_SWAPFILE:
+            statistics_pt.pt_faults_from_swapfile++;
+            break;
+        case SWAPFILE_WRITES:
+            statistics_pt.pt_swapfile_writes++;
+            break;
+        default:
+            break;
+    }
+
+    spinlock_release(&statistics_pt.lock);
+    spinlock_release(&statistics_tlb.lock);
+}
+```
+
+### uint32_t returnTLBStatistics(int type);
+### uint32_t returnPTStatistics(int type);
+### uint32_t returnSWStatistics(int type);
+
+This function returns the value of a TLB statistic based on the type parameter, which corresponds to predefined macros.
+It acquires and releases spinlocks for the statistics_tlb and statistics_pt structures to ensure only one reading at a time.
+
+```c
+uint32_t returnTLBStatistics(int type) {
+    uint32_t result;
+
+    spinlock_acquire(&statistics_tlb.lock);
+
+    switch (type) {
+        case FAULT:
+            result = statistics_tlb.tlb_faults;
+            break;
+        case FAULT_WITH_FREE:
+            result = statistics_tlb.tlb_faults_with_free;
+            break;
+        case FAULT_WITH_REPLACE:
+            result = statistics_tlb.tlb_faults_with_replace;
+            break;
+        case INVALIDATION:
+            result = statistics_tlb.tlb_invalidations;
+            break;
+        case RELOAD:
+            result = statistics_tlb.tlb_reloads;
+            break;
+        default:
+            result = 0;
+            break;
+    }
+
+    spinlock_release(&statistics_tlb.lock);
+    return result;
+}
+```
+
+### void constraintsCheck(uint32_t faults, uint32_t free, uint32_t replace, uint32_t reload, uint32_t disk, uint32_t zeroed, uint32_t elf, uint32_t swapfile);
+
+We implemented a function that automatically checks wheter the constraints have been respected. 
+In case of incorrectness, the user is allerted with a kprintf on the terminal.
+
+This function checks if the constraints between TLB and page fault statistics are respected.
+If a constraint is violated, a warning message is printed; otherwise, a success message is shown.
+
+```c
+void constraintsCheck(uint32_t tlbFaults, uint32_t tlbFree, uint32_t tlbReplace, uint32_t tlbReload, uint32_t disk, uint32_t zeroed, uint32_t elf, uint32_t swapfile) {
+    if (tlbFaults == (tlbFree + tlbReplace)) {
+        kprintf("CORRECT: the sum of TLB Faults with Free and TLB Faults with Replace is equal to TLB Faults\n");
+    } else {
+        kprintf("WARNING: the sum of TLB Faults with Free and TLB Faults with Replace is not equal to TLB Faults\n");
+    }
+
+    if (tlbFaults == (tlbReload + disk + zeroed)) {
+        kprintf("CORRECT: the sum of TLB Reloads, Page Faults Disk and Page Faults Zeroed is equal to TLB Faults\n");
+    } else {
+        kprintf("WARNING: the sum of TLB reloads, Page Faults Disk and Page Faults Zeroed is not equal to TLB Faults\n");      
+    }
+
+    if (disk == (elf + swapfile)) {
+        kprintf("CORRECT: the sum of Page Faults from ELF and Page Faults from Swapfile is equal to Page Faults (Disk)\n\n");
+    } else {
+        kprintf("WARNING: the sum of Page Faults from ELF and Page Faults from Swapfile is not equal to Page Faults (Disk)\n\n");      
+    }
+}
+```
+
 # ADDRSPACE
 
 The code related to this section can be found in the following files:
@@ -292,7 +464,177 @@ This calculation of `sz` gives us the exact number of bytes that need to be load
 
 Finally, as anticipated in the [address space section](#ADDRSPACE), the starting virtual address may not align with a page boundary. In such cases, it is essential to take the `initial_offset` into account when accessing the first page. If the `initial_offset` is not zero, we need to zero-fill the page first (to ensure the initial offset bits are set to 0) and then begin loading data from the specified `initial_offset` within the block, rather than starting from the usual position of 0.
 
+# TLB statistics
 
+## Statistics
+
+The following statistics have been collected  throghuout the excecution of the programs:
+
+1. **TLB Faults: -** (`tlb_faults`)
+    -  The number of TLB misses that have occurred (not including faults that cause a program to crash).
+2. **TLB Faults with Free: -** (`tlb_free_faults`)
+    - TThe number of TLB misses for which there was free space in the TLB to add the new TLB entry (i.e., no replacement is required). 
+3. **TLB Faults with Replace:  -** (`tlb_replace_faults`)
+    -  The number of TLB misses for which there was no free space for the 
+new TLB entry, so replacement was required.
+4. **TLB Invalidations: -**  (`tlb_invalidations`)
+    - The number of times the TLB was invalidated (this counts the number 
+times the entire TLB is invalidated NOT the number of TLB entries invalidated).
+5. **TLB Reloads** (`tlb_reloads`)
+    - The number of TLB misses for pages that were already in memory.
+6. **Page Faults (Zeroed): -** - (`pt_zeroed_faults`)
+    - The number of TLB misses that required a new page to be zero
+filled.
+7. **Page Faults (Disk): -**  - (`pt_disk_faults`)
+    - The number of TLB misses that required a page to be loaded from disk.
+8. **Page Faults From ELF** - (`pt_elf_faults`)
+    -  The number of page faults that require getting a page from the ELF file. 
+9. **Page Faults from Swapfile: -**  - (`pt_swapfile_faults`)
+    - The number of page faults that require getting a page from the swap 
+file. 
+10. **Swapfile Writes: -**  - (`swap_writes`)
+    - The number of page faults that require writing a page to the swap file.
+
+## Constraints
+
+To check if the statistics have been collected correctly, Some constraints have to be respected.
+
+- **Constraint 1: -** TLB Faults with Free + TLB Faults with Replace = TLB Faults
+- **Constraint 2: -** TLB Reloads + “Page Faults (Disk) + Page Faults (Zeroed) = TLB Faults
+- **Constraint 3: -** Page Faults from ELF + Page Faults from Swapfile = Page Faults (Disk)
+
+
+## Functions
+
+### void incrementStatistics(int type)
+
+This function increments the appropriate TLB or page table statistic based on the type parameter, which corresponds to predefined macros.
+It acquires and releases spinlocks for the statistics_tlb and statistics_pt structures to ensure only one writing at a time.
+
+```c
+#define FAULT 0
+#define FAULT_WITH_FREE 1
+#define FAULT_WITH_REPLACE 2
+#define INVALIDATION 3
+#define RELOAD 4
+#define FAULT_ZEROED 5
+#define FAULT_DISK 6
+#define FAULT_FROM_ELF 7
+#define FAULT_FROM_SWAPFILE 8
+#define SWAPFILE_WRITES 9
+
+void incrementStatistics(int type) {
+    spinlock_acquire(&statistics_tlb.lock);
+    spinlock_acquire(&statistics_pt.lock);
+
+    switch (type) {
+        case FAULT:
+            statistics_tlb.tlb_faults++;
+            break;
+        case FAULT_WITH_FREE:
+            statistics_tlb.tlb_faults_with_free++;
+            break;
+        case FAULT_WITH_REPLACE:
+            statistics_tlb.tlb_faults_with_replace++;
+            break;
+        case INVALIDATION:
+            statistics_tlb.tlb_invalidations++;
+            break;
+        case RELOAD:
+            statistics_tlb.tlb_reloads++;
+            break;
+        case FAULT_ZEROED:
+            statistics_pt.pt_faults_zeroed++;
+            break;
+        case FAULT_DISK:
+            statistics_pt.pt_faults_disk++;
+            break;
+        case FAULT_FROM_ELF:
+            statistics_pt.pt_faults_from_elf++;
+            break;
+        case FAULT_FROM_SWAPFILE:
+            statistics_pt.pt_faults_from_swapfile++;
+            break;
+        case SWAPFILE_WRITES:
+            statistics_pt.pt_swapfile_writes++;
+            break;
+        default:
+            break;
+    }
+
+    spinlock_release(&statistics_pt.lock);
+    spinlock_release(&statistics_tlb.lock);
+}
+```
+
+### uint32_t returnTLBStatistics(int type);
+### uint32_t returnPTStatistics(int type);
+### uint32_t returnSWStatistics(int type);
+
+This function returns the value of a TLB statistic based on the type parameter, which corresponds to predefined macros.
+It acquires and releases spinlocks for the statistics_tlb and statistics_pt structures to ensure only one reading at a time.
+
+```c
+uint32_t returnTLBStatistics(int type) {
+    uint32_t result;
+
+    spinlock_acquire(&statistics_tlb.lock);
+
+    switch (type) {
+        case FAULT:
+            result = statistics_tlb.tlb_faults;
+            break;
+        case FAULT_WITH_FREE:
+            result = statistics_tlb.tlb_faults_with_free;
+            break;
+        case FAULT_WITH_REPLACE:
+            result = statistics_tlb.tlb_faults_with_replace;
+            break;
+        case INVALIDATION:
+            result = statistics_tlb.tlb_invalidations;
+            break;
+        case RELOAD:
+            result = statistics_tlb.tlb_reloads;
+            break;
+        default:
+            result = 0;
+            break;
+    }
+
+    spinlock_release(&statistics_tlb.lock);
+    return result;
+}
+```
+
+### void constraintsCheck(uint32_t faults, uint32_t free, uint32_t replace, uint32_t reload, uint32_t disk, uint32_t zeroed, uint32_t elf, uint32_t swapfile);
+
+We implemented a function that automatically checks wheter the constraints have been respected. 
+In case of incorrectness, the user is allerted with a kprintf on the terminal.
+
+This function checks if the constraints between TLB and page fault statistics are respected.
+If a constraint is violated, a warning message is printed; otherwise, a success message is shown.
+
+```c
+void constraintsCheck(uint32_t tlbFaults, uint32_t tlbFree, uint32_t tlbReplace, uint32_t tlbReload, uint32_t disk, uint32_t zeroed, uint32_t elf, uint32_t swapfile) {
+    if (tlbFaults == (tlbFree + tlbReplace)) {
+        kprintf("CORRECT: the sum of TLB Faults with Free and TLB Faults with Replace is equal to TLB Faults\n");
+    } else {
+        kprintf("WARNING: the sum of TLB Faults with Free and TLB Faults with Replace is not equal to TLB Faults\n");
+    }
+
+    if (tlbFaults == (tlbReload + disk + zeroed)) {
+        kprintf("CORRECT: the sum of TLB Reloads, Page Faults Disk and Page Faults Zeroed is equal to TLB Faults\n");
+    } else {
+        kprintf("WARNING: the sum of TLB reloads, Page Faults Disk and Page Faults Zeroed is not equal to TLB Faults\n");      
+    }
+
+    if (disk == (elf + swapfile)) {
+        kprintf("CORRECT: the sum of Page Faults from ELF and Page Faults from Swapfile is equal to Page Faults (Disk)\n\n");
+    } else {
+        kprintf("WARNING: the sum of Page Faults from ELF and Page Faults from Swapfile is not equal to Page Faults (Disk)\n\n");      
+    }
+}
+```
 
 
 

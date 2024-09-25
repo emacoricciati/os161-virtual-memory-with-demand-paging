@@ -164,7 +164,7 @@ load_elf(struct vnode *v, vaddr_t *entrypoint)
 	struct addrspace *as;
 
 	as = proc_getas();
-	as->v = v; //TODO: check if this it's redundant since it's done later
+	as->v = v; 
 
 	/*
 	 * Read the executable header from offset 0 in the file.

@@ -265,7 +265,7 @@ As for the stack, the field `stackpbase` is no longer included in the address sp
 
 In order to support "On demand" paging, some functions were modified. Here is a list of the main modified functions with their differences compared to the base implementation:
 
-- **as_copy**: It's called during a fork operation. It increases the reference count on the vnode of the ELF file and calls functions to duplicate entries in the page table and swap file for the new related pid. At the end, the copy of page table and swap file are handled by the following functions:
+- **as_copy**: It's called during a fork operation. It increases the reference count on the vnode of the ELF file and calls functions to duplicate entries in the page table and swap file for the new related pid using the following functions:
 `prepareCopyPT`, `duplicateSwapPages`, `copyPTEntries` and `endCopyPT`.
 - **as_destroy**: It closes the ELF file only when the reference count is `0`, otherwise it decreases the counter.
 - **as_activate**: It calls `tlbInvalidate` to invalidate all entries in the TLB when a new process is running.

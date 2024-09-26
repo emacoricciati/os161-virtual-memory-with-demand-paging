@@ -2,6 +2,31 @@
 
 This project, realized by [Emanuele Coricciati](https://github.com/emacoricciati), [Erika Astegiano](https://github.com/astegiano-erika) and [Giacomo Belluardo](https://github.com/giacomobelluardo), will take care of implementing virtual memory with on demand paging on OS161 and error handling for readonly segments and segmentation fault.
 
+To use our version of OS161, it is recommended to increase `ramsize` to `2M` in the `sys161.conf` file to reduce the number of swap operations performed on the swap file. The swap file was implemented using the raw partition `LHD0.img`, resizing it to `9M`. You can change the size of the partition with the following command in the root folder:
+
+```bash
+disk161 resize LHD0.img 9M
+```
+This implementation was tested using the following tests from the `testbin` folder:
+- palin
+- matmult
+- huge
+- sort
+- forktest
+- parallelvm
+- bigfork
+
+Additionally, the `testbin/zero` test was run for specific reasons explained later. However, it doesn't fully work since the `sbrk` syscall is not implemented in this version of OS161.
+
+### DEBUGGING THE SYSTEM
+
+To track the flow of operations in the OS, debug prints were introduced in the code. The debugging process was carried out using:
+- **Debug option**: It prints the TLB state each time `vm_fault` is called, and prints the page list every time functions like `copyPTEntries`, `loadPage`, and `loadSwapFrame` are invoked. It can be enabled in the `conf/FINAL` file by simply uncommenting the respective line
+```bash
+#options debug
+```
+- **Debug flow prints**: Special debug flags, namely `DB_VM`,`DB_IPT`, `DB_TLB`, and `DB_SWAP`, were used to log significant events for each of these features. These flags can be configured in the `kprintf.c` file by modifying the `dbflags` variable, which has a default value of 0. You can enable multiple flags at once by using the logical OR operator (`|`) between different flags.
+
 # TLB Management
 The code related to this section can be found at:
 
@@ -24,7 +49,7 @@ int vm_fault(int faulttype, vaddr_t faultaddress){
     tlbPrint();
     #endif
 
-    DEBUG(DB_VM,"\nTLB fault at address: 0x%x\n", faultaddress);
+    DEBUG(DB_TLB,"\nTLB fault at address: 0x%x\n", faultaddress);
     
     int spl = splhigh();
     paddr_t paddr;
@@ -44,7 +69,7 @@ int vm_fault(int faulttype, vaddr_t faultaddress){
     appropriate exception (no need to panic, kernel should not crash)*/
     case VM_FAULT_READONLY:
         kprintf("Attempted to write to a read-only segment. Terminating process...");
-        sys__exit(0); // TODO: try to exit using VM_FAULT_READONLY
+        sys__exit(0);
         break;
     default:
         break;
@@ -88,7 +113,6 @@ int tlbInsert(vaddr_t faultvaddr, paddr_t faultpaddr){
                     /*Set a dirty bit (write privilege)*/
                     lo = lo | TLBLO_DIRTY; 
                 }
-            //lo = lo | TLBLO_DIRTY;  // TODO: try later (on demand paging)
             tlb_write(hi, lo, entry);
             // update the statistic
             incrementStatistics(FAULT_WITH_FREE);
@@ -130,7 +154,7 @@ void tlbInvalidate(void){
     // The process changed, not just the thread. This matters because as_activate is also triggered by thread changes.
     if(previous_pid != pid) 
     {
-    DEBUG(DB_VM,"New process executing: %d replacing %d. Invalidating TLB entries\n", pid, previous_pid);
+    DEBUG(DB_TLB,"New process executing: %d replacing %d. Invalidating TLB entries\n", pid, previous_pid);
 
     // Update statistic
     incrementStatistics(INVALIDATION);

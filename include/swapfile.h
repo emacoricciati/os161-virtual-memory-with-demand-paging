@@ -9,7 +9,7 @@
 #include "copyinout.h"
 #include "lib.h"
 #include "vfs.h"
-#include "stats.h"
+#include "vmstats.h"
 #include "synch.h"
 #include "proc.h"
 #include "vm.h"

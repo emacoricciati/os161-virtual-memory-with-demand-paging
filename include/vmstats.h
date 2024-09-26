@@ -1,5 +1,5 @@
-#ifndef _STATS_H_
-#define _STATS_H_
+#ifndef _VMSTATS_H_
+#define _VMSTATS_H_
 
 #include <types.h>
 #include <lib.h>

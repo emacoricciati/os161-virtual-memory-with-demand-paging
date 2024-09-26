@@ -40,7 +40,7 @@
 #include <cpu.h>
 #include "opt-final.h"
 #include "vm_tlb.h"
-#include "stats.h"
+#include "vmstats.h"
 #include "vfs.h"
 #include "vnode.h"
 #include "swapfile.h"
@@ -330,24 +330,6 @@ int as_is_correct(void){
 }
 
 void vm_shutdown(void){
-	
-	int foundNotFreed = 0;
-	//Print entry in the pt that has not been freed
-	for(int i=0;i<pt_info.ptSize;i++){
-		if(pt_info.pt[i].ctl!=0){
-			foundNotFreed = 1;
-			kprintf("Entry %d has not been freed! ctl=%d, pid=%d\n",i,pt_info.pt[i].ctl,pt_info.pt[i].pid);
-		}
-		if(GET_KBIT(pt_info.pt[i].ctl)!=0){
-			foundNotFreed = 1;
-			kprintf("It looks like some errors with free occurred: entry%d, process %d\n",i,pt_info.pt[i].pid);
-		}
-
-	}
-
-	if(!foundNotFreed){
-		kprintf("\nAll entries in the PT have been freed correctly\n");
-	}
 	
 	// print statistics
 	printStatistics();

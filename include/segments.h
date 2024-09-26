@@ -17,7 +17,7 @@
 #include <addrspace.h>
 #include <vnode.h>
 #include <elf.h>
-#include "stats.h"
+#include "vmstats.h"
 #include "opt-final.h"
 #include "opt-debug.h"
 

@@ -453,7 +453,7 @@ file vm/pt.c
 file vm/vm_tlb.c
 
 #STATS
-file vm/stats.c
+file vm/vmstats.c
 
 #SWAPFILE
 file vm/swapfile.c

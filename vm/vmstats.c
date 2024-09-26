@@ -1,4 +1,4 @@
-#include "stats.h"
+#include "vmstats.h"
 
 // Global variables
 struct statistics_tlb statistics_tlb = {0};

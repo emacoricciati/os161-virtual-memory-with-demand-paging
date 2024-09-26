@@ -6,7 +6,7 @@
 #include "opt-final.h"
 #include "current.h"
 #include "vm.h" // includes the definition of vm_fault
-#include "stats.h"
+#include "vmstats.h"
 
 
 #if OPT_FINAL
@@ -17,7 +17,7 @@ int vm_fault(int faulttype, vaddr_t faultaddress){
     tlbPrint();
     #endif
 
-    DEBUG(DB_VM,"\nTLB fault at address: 0x%x\n", faultaddress);
+    DEBUG(DB_TLB,"\nTLB fault at address: 0x%x\n", faultaddress);
     
     int spl = splhigh();
     paddr_t paddr;
@@ -32,9 +32,10 @@ int vm_fault(int faulttype, vaddr_t faultaddress){
         break;
     case VM_FAULT_WRITE:
         break;
-    /*The text segment cannot be written by the process. 
-    If the process tries to modify a RO segment, the process has to be ended by means of an 
-    appropriate exception (no need to panic, kernel should not crash)*/
+    /** The text segment cannot be written by the process. 
+     * If the process tries to modify a RO segment, the process has to be ended by means of an 
+     * appropriate exception (no need to panic, kernel should not crash) 
+    **/
     case VM_FAULT_READONLY:
         kprintf("Attempted to write to a read-only segment. Terminating process...");
         sys__exit(0);
@@ -42,11 +43,11 @@ int vm_fault(int faulttype, vaddr_t faultaddress){
     default:
         break;
     }
-    /*Check if the address space is setted up correctly*/
+    /* Check if the address space is setted up correctly */
     KASSERT(as_is_correct() == 1);
-   /*Get physical address that it's not present in the TLB from the Page Table*/
+    /* Get physical address that it's not present in the TLB from the Page Table */
     paddr = getFramePT(faultaddress);
-    /*Insert address into the TLB */
+    /* Insert address into the TLB */
     tlbInsert(faultaddress, paddr);
     splx(spl);
     return 0;
@@ -173,7 +174,7 @@ void tlbInvalidate(void){
     // The process changed, not just the thread. This matters because as_activate is also triggered by thread changes.
     if(previous_pid != pid) 
     {
-    DEBUG(DB_VM,"New process executing: %d replacing %d. Invalidating TLB entries\n", pid, previous_pid);
+    DEBUG(DB_TLB,"New process executing: %d replacing %d. Invalidating TLB entries\n", pid, previous_pid);
 
     // Update statistic
     incrementStatistics(INVALIDATION);

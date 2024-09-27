@@ -11,6 +11,11 @@
 
 #if OPT_FINAL
 
+/*
+- called when there's a TLB miss
+- if we are trying to write a readonly area the process ends
+- otherwise we call the IPT
+*/
 int vm_fault(int faulttype, vaddr_t faultaddress){
 
     #if OPT_DEBUG
@@ -19,23 +24,22 @@ int vm_fault(int faulttype, vaddr_t faultaddress){
 
     DEBUG(DB_TLB,"\nTLB fault at address: 0x%x\n", faultaddress);
     
-    int spl = splhigh();
+    int spl = splhigh(); //disabling the interrupt not to block TLB update
     paddr_t paddr;
   
     faultaddress &= PAGE_FRAME; // get the address that wasn't in the TLB (removing the offset)
-
-    incrementStatistics(FAULT); // update the statistics
+    incrementStatistics(FAULT);
     
     switch (faulttype)
     {
-    case VM_FAULT_READ:
+    case VM_FAULT_READ: //reading from address that is not in TLB
         break;
-    case VM_FAULT_WRITE:
+    case VM_FAULT_WRITE: //write to an address not in TLB
         break;
-    /** The text segment cannot be written by the process. 
-     * If the process tries to modify a RO segment, the process has to be ended by means of an 
-     * appropriate exception (no need to panic, kernel should not crash) 
-    **/
+    /*
+    The text segment cannot be written by the process -> the process has to be ended by means of a syscall
+    (no need to panic, kernel should not crash) 
+    */
     case VM_FAULT_READONLY:
         kprintf("Attempted to write to a read-only segment. Terminating process...");
         sys__exit(0);
@@ -49,7 +53,7 @@ int vm_fault(int faulttype, vaddr_t faultaddress){
     paddr = getFramePT(faultaddress);
     /* Insert address into the TLB */
     tlbInsert(faultaddress, paddr);
-    splx(spl);
+    splx(spl); //restoring the interrupts
     return 0;
 }
 #endif 
@@ -118,9 +122,9 @@ void tlbPrint(void){
 }
 
 /*
-Chooses and returns the index of the entry to sacrifice in the TLB.
+Returns the index of the victim selected (Round Robin) in the TLB.
 */ 
-int tlbVictim(void){                               //this soultion uses the entry to invalidate exploiting the Round Robin policy
+int tlbVictim(void){                               
     int vict;       
 
     static unsigned int next_vict = 0;
@@ -137,14 +141,14 @@ Defines if, given the virtual address of a frame, it is read only or not.
 int segmentIsReadOnly(vaddr_t virtualAddr){
     struct addrspace *as;
 
-    as = proc_getas();              //Get the address space of the process (substitute for the moment that function if it isn't developed yet)
+    as = proc_getas();              //Get the address space of the process
 
     int isReadOnly = 0;
 
-    uint32_t firstTextVirtAddr = as->as_vbase1;
+    uint32_t firstTextVirtAddr = as->as_vbase1; //starting address of the text segment
     int sizeFrame = as->as_npages1;
 
-    uint32_t lastTextVirtAddr = (sizeFrame * PAGE_SIZE) +  firstTextVirtAddr;
+    uint32_t lastTextVirtAddr = (sizeFrame * PAGE_SIZE) +  firstTextVirtAddr; //ending address of the text segment
 
     //Check if the virtual address is in the range of the virtual address that has been assigned to the text segment
     if((virtualAddr >= firstTextVirtAddr) && (virtualAddr <= lastTextVirtAddr)){

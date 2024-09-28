@@ -9,34 +9,34 @@
 pid_t previous_pid;
 pid_t old_pid;
 
-/**
- * Select the victim in the TLB and returns its index.
-*/
+/*
+Returns the index of the victim selected (Round Robin) in the TLB.
+*/ 
 int tlbVictim(void);
 
-/* Check if the address is in the text segment (code segment, it's not writable) */
+/*
+Defines if, given the virtual address of a frame, it is read only or not.
+*/
 int segmentIsReadOnly(vaddr_t vaddr);
 
-/**
- * Insert a new entry in the TLB. It receives the fault address (virtual) and the 
- * corresponding physical one received by the page table. 
- * It finds a space to insert the entry (vaddr, paddr) using tlbVictim.
-*/
+/*
+Write a new entry into the TLB.
+- input parameters: the fault address (virtual) and physical address (given by the page table)
+ */
 int tlbInsert(vaddr_t vaddr, paddr_t faultpaddr);
 
-/**
- * Check if the entry in the TLB at index i is valid or not.
+/*
+Check if the entry in the TLB at index i is valid or not.
 */
 int tlbEntryIsValid(int i);
 
-/**
- * Invalidate the TLB when there is a switch from a process to another. Indeed, 
- * the TLB is common for all processes and does not have a "pid" field.
+/*
+Invalidate the TLB when there is a switch from a process to another (there is no PID field).
 */
 void tlbInvalidate(void);
 
-/**
- * Used for debugging. Print the content of the TLB.
+/*
+Print the content of the TLB.
 */
 void tlbPrint(void);
 

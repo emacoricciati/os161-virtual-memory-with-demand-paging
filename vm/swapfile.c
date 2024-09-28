@@ -5,8 +5,11 @@
 struct swapFile *sf;
 
 #if OPT_DEBUG
+/**
+ * Given the process ID, it prints the text, data, and stack lists.
+ * @param pid_t: process ID of the target process.
+*/
 void printPageLists(pid_t pid){
-
     struct swapPage *i;
 
     kprintf("\tSWAP PAGE LIST FOR PROCESS %d:\n",pid);
@@ -23,20 +26,21 @@ void printPageLists(pid_t pid){
         kprintf("addr: 0x%x, offset: 0x%x, next: 0x%x\n",i->vaddr,i->swapOffset,(unsigned int)i->next);
     }
     kprintf("\n");
-
 }
 #endif
 
+/**
+ * This function sets up the swap file. Specifically, it allocates the necessary data structures and opens the file that will hold the pages.
+*/
 int initSwapfile(void){
     int result;
     int i;
     char fname[9];
     struct swapPage *page;
 
-    // lhd0raw for swapfile
-    strcpy(fname,"lhd0raw:");
+    strcpy(fname,"lhd0raw:"); // lhd0raw for swapfile
 
-    sf = kmalloc(sizeof(struct swapFile));
+    sf = kmalloc(sizeof(struct swapFile)); //swapfile allocation
     if(!sf){
         panic("Fatal error: failed to allocate swap space");
     }
@@ -47,7 +51,7 @@ int initSwapfile(void){
 		return result;
 	}
 
-    sf->sizeSF = MAX_SIZE/PAGE_SIZE;//Pages in the swap file
+    sf->sizeSF = MAX_SIZE/PAGE_SIZE; //#Pages in the swap file
 
     sf->kbuf = kmalloc(PAGE_SIZE); //Allocating a buffer for copying swap pages (one time allocation)
     if(!sf->kbuf){
@@ -78,10 +82,9 @@ int initSwapfile(void){
 
     sf->freePages=NULL;
 
-    /** Initializes all the elements in the free list. The iteration is done
-     *  in reverse order to ensure that head insertion
-     *  results in smaller offsets for the first free elements.
-    **/
+    // Initializes all the elements in the free list.
+    // The iteration is done in reverse order to ensure that head insertion
+    // results in smaller offsets for the first free elements.
 
     for(i=(int)(sf->sizeSF-1); i>=0; i--){
         page=kmalloc(sizeof(struct swapPage));
@@ -92,50 +95,56 @@ int initSwapfile(void){
         page->isStoreOp=0;
         page->operationCV = cv_create("cell_cv");
         page->operationLock = lock_create("cell_lock");
+
         // Insert the page into the free list
         page->next=sf->freePages;
         sf->freePages=page;
     }
-
     return 0;
-    
 }
 
+/**
+ * This function restores a frame back into RAM.
+ *
+ * @param vaddr_t: virtual address that triggered the page fault
+ * @param pid_t: process ID
+ * @param paddr_t: physical address of the RAM frame to be used
+ * 
+ * @return 1 if the page was found in the swap file, 0 otherwise
+*/
 int loadSwapFrame(vaddr_t vaddr, pid_t pid, paddr_t paddr){
     int result;
-    struct iovec iov;
-    struct uio ku;
+    struct iovec iov; //I/O vector structure for scatter/gather I/O
+    struct uio ku; //UIO structure for kernel I/O operations
 
-    //Asserting if the pid is the same of the one of the current process
-    KASSERT(pid==curproc->p_pid);
+    KASSERT(pid==curproc->p_pid); //Asserting if the pid is the same of the one of the current process
 
     struct addrspace *as=proc_getas();
-    struct swapPage *listPages=NULL, *prevPages=NULL;
+    struct swapPage *listPages=NULL;
+    struct swapPage *prevPages=NULL;
     int segVar=-1;     //It's used for removal from the head but can also be used for debugging
 
-    //1: Identify the right segment afterward the list will point to the correct entry
-    if(vaddr>=as->as_vbase1 && vaddr <= as->as_vbase1 + as->as_npages1 * PAGE_SIZE ){
+    //Identify the right segment (list will point to the correct entry)
+    if(vaddr>=as->as_vbase1 && vaddr <= as->as_vbase1 + as->as_npages1 * PAGE_SIZE ){   //Text segment
         listPages = sf->textPages[pid];
         segVar=0;
     }
 
-    if(vaddr>=as->as_vbase2 && vaddr <= as->as_vbase2 + as->as_npages2 * PAGE_SIZE ){
+    if(vaddr>=as->as_vbase2 && vaddr <= as->as_vbase2 + as->as_npages2 * PAGE_SIZE ){ //Data segment
         listPages = sf->dataPages[pid];
         segVar=1;
     }
 
-    if(vaddr <= USERSTACK && vaddr>as->as_vbase2 + as->as_npages2 * PAGE_SIZE){
+    if(vaddr <= USERSTACK && vaddr>as->as_vbase2 + as->as_npages2 * PAGE_SIZE){ //Stack segment
         listPages = sf->stackPages[pid];
         segVar=2;
     }
 
-    //Managing the case in which the segment is not found
-    if(segVar==-1){
+    if(segVar==-1){ //segment is not found
         panic("Wrong virtual address for load: 0x%x, process=%d\n",vaddr,curproc->p_pid);
     }
 
-
-    //2: Search for the right entry in the list
+    //Search for the right entry (in the swaplist) to remove 
     while(listPages!=NULL){
         if(listPages->vaddr==vaddr){ //Entry found
 
@@ -145,11 +154,11 @@ int loadSwapFrame(vaddr_t vaddr, pid_t pid, paddr_t paddr){
              *3: Place the entry inside the free list (so after the I/O operation has been completed)
             **/
 
-            if(prevPages!=NULL){ //If List is not the first entry
+            if(prevPages!=NULL){ //If List is not the first entry (head of the list)
                 KASSERT(prevPages->next==listPages);
-                prevPages->next=listPages->next;     //Removing the entry from the process list
+                prevPages->next=listPages->next; //Removing the entry from the process list
             }
-            else{                       //Removing from head
+            else{ //Removing from head
                 if(segVar==0){
                     sf->textPages[pid]=listPages->next;
                 }
@@ -162,18 +171,16 @@ int loadSwapFrame(vaddr_t vaddr, pid_t pid, paddr_t paddr){
             }
 
             lock_acquire(listPages->operationLock);
-            while(listPages->isStoreOp){                 //we have to wait until the entry is not stored
-                cv_wait(listPages->operationCV,listPages->operationLock);         //waiting on the condition variable of the entry
+            while(listPages->isStoreOp){//we have to wait until the entry is not stored
+                cv_wait(listPages->operationCV,listPages->operationLock);//waiting on the condition variable of the entry
             }
             lock_release(listPages->operationLock);
-            
             DEBUG(DB_SWAP,"Loading swap of vaddr 0x%x in 0x%x for process %d\n",vaddr, listPages->swapOffset, pid);
-
-            incrementStatistics(FAULT_DISK);               //Update of the statistics  
+            incrementStatistics(FAULT_DISK);
 
             uio_kinit(&iov,&ku,(void*)PADDR_TO_KVADDR(paddr),PAGE_SIZE,listPages->swapOffset,UIO_READ);          //paddr is the physical address of the frame and it's used in order toa void faults
 
-            result = VOP_READ(sf->v,&ku);                 //read
+            result = VOP_READ(sf->v,&ku); //reads the swap page from disk into the physical frame at paddr
             if(result){
                 panic("Fatal error: VOP_READ for swapfile failed with result=%d",result);
             }
@@ -182,36 +189,41 @@ int loadSwapFrame(vaddr_t vaddr, pid_t pid, paddr_t paddr){
             // put the entry in the free list
             listPages->next=sf->freePages;                      
             sf->freePages=listPages;
-
-            incrementStatistics(FAULT_FROM_SWAPFILE);               //Update of the statistics
-
-            listPages->vaddr=0;                              //reset the virtual address in the list
+            incrementStatistics(FAULT_FROM_SWAPFILE);               
+            listPages->vaddr=0; //reset the virtual address in the list
 
             #if OPT_DEBUG
-            printPageLists(pid);                           //print the list (updated)
+            printPageLists(pid);                      
             #endif
 
-            return 1;                                  //entry found in the swapfile, return 1
+            return 1;  //entry found in the swapfile, return 1
         }
         
-        prevPages=listPages;                                     // update prev and list
+        //entry not found
+        prevPages=listPages;     // update prev and list
         listPages=listPages->next;
         KASSERT(prevPages->next==listPages);
     }
-
-    return 0;                                               //no entry found, return 0
-
+    return 0;                                             
 }
 
+/**
+ * This function writes a frame into the swap file.
+ * If the swap file size exceeds 9MB, it triggers a kernel panic.
+ *
+ * @param vaddr_t: virtual address that triggered the page fault
+ * @param pid_t: process ID
+ * @param paddr_t: physical address of the RAM frame to be saved
+ * 
+ * @return -1 on errors, 0 otherwise
+*/
 int storeSwapFrame(vaddr_t vaddr, pid_t pid, paddr_t paddr){
-
-    
     int result;
     struct iovec iov; //I/O vector structure for scatter/gather I/O
     struct uio ku;    //UIO structure for kernel I/O operations
 
     struct addrspace *as = proc_getas(); //current process's address space
-    struct swapPage *free_frame;        //pointer to a free swap frame
+    struct swapPage *free_frame;         //pointer to a free swap frame
     int valid_address = 0;               //flag to check if the address is valid
 
     /**
@@ -234,21 +246,21 @@ int storeSwapFrame(vaddr_t vaddr, pid_t pid, paddr_t paddr){
 
     // Determine which segment the virtual address belongs to and insert the frame accordingly
 
-    //check if the address is in the text segment
+    //check if the address is in the TEXT segment
     if (vaddr >= as->as_vbase1 && vaddr <= as->as_vbase1 + as->as_npages1 * PAGE_SIZE ){
         free_frame->next = sf->textPages[pid]; // Insert at the head of the text swap list for the process
         sf->textPages[pid] = free_frame;
         valid_address = 1;
     }
 
-    // check if the address is in the data segment
+    // check if the address is in the DATA segment
     if (vaddr >= as->as_vbase2 && vaddr <= as->as_vbase2 + as->as_npages2 * PAGE_SIZE ){
         free_frame->next = sf->dataPages[pid]; // Insert at the head of the data swap list for the process
         sf->dataPages[pid] = free_frame;
         valid_address = 1;
     }
 
-    //check if the address is in the stack segment
+    //check if the address is in the STACK segment
     if (vaddr <= USERSTACK && vaddr > as->as_vbase2 + as->as_npages2 * PAGE_SIZE){
         free_frame->next = sf->stackPages[pid]; // Insert at the head of the stack swap list for the process
         sf->stackPages[pid] = free_frame;
@@ -288,6 +300,11 @@ int storeSwapFrame(vaddr_t vaddr, pid_t pid, paddr_t paddr){
         
 }
 
+/**
+ * When a process ends, we free all its pages stored in the swap file.
+ * 
+ * @param pid_t: process ID of the terminated process.
+*/
 void freeProcessPagesInSwap(pid_t pid){
     struct swapPage *elem, *next;
 
@@ -339,6 +356,12 @@ void freeProcessPagesInSwap(pid_t pid){
     }
 }
 
+/**
+ * When a fork is executed, we duplicate all the pages of the old process for the new process as well.
+ * 
+ * @param pid_t: process ID of the original process.
+ * @param pid_t: process ID of the new process.
+*/
 void duplicateSwapPages(pid_t new_pid, pid_t old_pid) {
     // Log the start of the fork operation
     DEBUG(DB_SWAP,"Process %d performs a kmalloc to fork %d\n",curproc->p_pid,new_pid);
@@ -483,6 +506,10 @@ void duplicateSwapPages(pid_t new_pid, pid_t old_pid) {
     
 }
 
+/**
+ * After the entire program finishes, we reorder all the pages in the swap file.
+ * Since lower offsets result in faster I/O, this function helps maintain performance.
+*/
 void optimizeSwapfile(void){
 
     struct swapPage *p=sf->freePages;

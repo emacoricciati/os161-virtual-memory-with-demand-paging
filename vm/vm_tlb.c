@@ -5,7 +5,7 @@
 #include "addrspace.h"
 #include "opt-final.h"
 #include "current.h"
-#include "vm.h" // includes the definition of vm_fault
+#include "vm.h"
 #include "vmstats.h"
 
 
@@ -36,10 +36,9 @@ int vm_fault(int faulttype, vaddr_t faultaddress){
         break;
     case VM_FAULT_WRITE: //write to an address not in TLB
         break;
-    /*
-    The text segment cannot be written by the process -> the process has to be ended by means of a syscall
-    (no need to panic, kernel should not crash) 
-    */
+    
+    //The text segment cannot be written by the process -> the process has to be ended by means of a syscall
+    //(no need to panic, kernel should not crash) 
     case VM_FAULT_READONLY:
         kprintf("Attempted to write to a read-only segment. Terminating process...");
         sys__exit(0);
@@ -47,67 +46,65 @@ int vm_fault(int faulttype, vaddr_t faultaddress){
     default:
         break;
     }
-    /* Check if the address space is setted up correctly */
+    //Check if the address space is setted up correctly
     KASSERT(as_is_correct() == 1);
-    /* Get physical address that it's not present in the TLB from the Page Table */
+    //Get physical address that it's not present in the TLB from the Page Table
     paddr = getFramePT(faultaddress);
-    /* Insert address into the TLB */
+    //Insert address into the TLB
     tlbInsert(faultaddress, paddr);
     splx(spl); //restoring the interrupts
     return 0;
 }
 #endif 
 
-/**
- * Write a new entry into the TLB. This function takes the fault address (virtual)
- * and the corresponding physical address provided by the page table.
- * It locates an available slot for the entry (vaddr, paddr) using the tlbVictim function.
+/*
+Write a new entry into the TLB.
+- input parameters: the fault address (virtual) and physical address (given by the page table)
  */
 int tlbInsert(vaddr_t faultvaddr, paddr_t faultpaddr){
-    /*faultpaddr is the address of the beginning of the physical frame, so I have to remember that I do not have to 
-    pass the whole address but I have to mask the least significant 12 bits*/
+    //faultpaddr is the address of the beginning of the physical frame, so I have to remember that I do not have to 
+    //pass the whole address but I have to mask the least significant 12 bits
     int entry, valid, isRO; 
     uint32_t hi, lo, prevHi, prevLo;
     isRO = segmentIsReadOnly(faultvaddr);
 
-    /* Step 1: Search for an available entry, update the statistic (free)*/
+    //Search for an available entry
     for(entry = 0; entry <NUM_TLB; entry++){
         valid = tlbEntryIsValid(entry);
         if(!valid){
-            /*Write the entry in the TLB*/
+            //Write the entry in the TLB
                 hi = faultvaddr;
                 lo = faultpaddr | TLBLO_VALID; //the entry has to be set as valid
                if(!isRO){
-                    /*Set a dirty bit (write privilege)*/
-                    lo = lo | TLBLO_DIRTY; 
+                    lo = lo | TLBLO_DIRTY; //Set a dirty bit (write privilege)
                 }
             tlb_write(hi, lo, entry);
-            // update the statistic
             incrementStatistics(FAULT_WITH_FREE);
             return 0;
         }
 
     }
-    /*Step 2: Invalid entry not found. Look for a victim, overwrite and update the statistic (replace)*/
+
+    //Look for a victim
     entry = tlbVictim();
     hi = faultvaddr;
     lo = faultpaddr | TLBLO_VALID; //the entry has to be set as valid
     if(!isRO){
-        /*Set a dirty bit (write privilege)*/
-        lo = lo | TLBLO_DIRTY; 
+        lo = lo | TLBLO_DIRTY;  //Set a dirty bit (write privilege)
     }
-    /*notify the PT that the entry with that virtual address is not in TLB anymore*/
-    tlb_read(&prevHi, &prevLo, entry); // read the content of the entry
-    tlbUpdateBit(prevHi, curproc->p_pid); // update the PT
-    /*Overwrite the content*/
+    //notify the PT that the entry with that virtual address is not in TLB anymore
+    tlb_read(&prevHi, &prevLo, entry);
+    tlbUpdateBit(prevHi, curproc->p_pid); 
+
+    //Overwrite the content
     tlb_write(hi, lo, entry);
-    // Update statistic
     incrementStatistics(FAULT_WITH_REPLACE);
     return 0;
 
 }
-/**
- * Used for debugging. Print the content of the TLB.
+
+/*
+Print the content of the TLB.
 */
 void tlbPrint(void){
     uint32_t hi, lo;
@@ -130,7 +127,7 @@ int tlbVictim(void){
     static unsigned int next_vict = 0;
 
     vict = next_vict;
-    next_vict = (next_vict + 1) % NUM_TLB;          //the constant is the number of TLB entries in the processor
+    next_vict = (next_vict + 1) % NUM_TLB;//the constant is the number of TLB entries in the processor
 
     return vict;
 }
@@ -141,7 +138,7 @@ Defines if, given the virtual address of a frame, it is read only or not.
 int segmentIsReadOnly(vaddr_t virtualAddr){
     struct addrspace *as;
 
-    as = proc_getas();              //Get the address space of the process
+    as = proc_getas();//Get the address space of the process
 
     int isReadOnly = 0;
 
@@ -150,44 +147,41 @@ int segmentIsReadOnly(vaddr_t virtualAddr){
 
     uint32_t lastTextVirtAddr = (sizeFrame * PAGE_SIZE) +  firstTextVirtAddr; //ending address of the text segment
 
-    //Check if the virtual address is in the range of the virtual address that has been assigned to the text segment
+    //Check if the virtual address is in the range of the text segment
     if((virtualAddr >= firstTextVirtAddr) && (virtualAddr <= lastTextVirtAddr)){
-        isReadOnly = 1;         //If it is in the range we set to 1
+        isReadOnly = 1;        
     }
 
     return isReadOnly;
 }
 
-/**
- * Checkif the entry in the TLB at index i is valid or not.
+/*
+Check if the entry in the TLB at index i is valid or not.
 */
 int tlbEntryIsValid(int i){
     uint32_t hi, lo;
     tlb_read(&hi, &lo, i);
-    return (lo & TLBLO_VALID);
+    return (lo & TLBLO_VALID); //result == 0 --> entry invalid
 }
 
-/**
- * Invalidate the TLB when there is a switch from a process to another. Indeed, 
- * the TLB is common for all processes and does not have a "pid" field.
+/*
+Invalidate the TLB when there is a switch from a process to another (there is no PID field).
 */
 void tlbInvalidate(void){
     uint32_t hi, lo;
     pid_t pid = curproc->p_pid;
 
     // The process changed, not just the thread. This matters because as_activate is also triggered by thread changes.
-    if(previous_pid != pid) 
+    if(previous_pid != pid)
     {
     DEBUG(DB_TLB,"New process executing: %d replacing %d. Invalidating TLB entries\n", pid, previous_pid);
-
-    // Update statistic
     incrementStatistics(INVALIDATION);
-
+    
     // Invalidate entries
     for(int i = 0; i<NUM_TLB; i++){
         if(tlbEntryIsValid(i)){
             tlb_read(&hi,&lo,i);
-            tlbUpdateBit(hi,previous_pid); // Entry of the PT is not cached anymore
+            tlbUpdateBit(hi,previous_pid); //tell the PT that the entry is not in the TLB anymore
         }
         tlb_write(TLBHI_INVALID(i), TLBLO_INVALID(), i); // Invalidate the entry
     }

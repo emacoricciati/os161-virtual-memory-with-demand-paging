@@ -25,7 +25,7 @@ To track the flow of operations in the OS, debug prints were introduced in the c
 ```bash
 #options debug
 ```
-- **Debug flow prints**: Special debug flags, namely `DB_VM`,`DB_IPT`, `DB_TLB`, and `DB_SWAP`, were used to log significant events for each of these features. These flags can be configured in the `kprintf.c` file by modifying the `dbflags` variable, which has a default value of 0. You can enable multiple flags at once by using the logical OR operator (`|`) between different flags.
+- **Debug flow prints**: Special debug flags, namely `DB_IPT`, `DB_TLB`, and `DB_SWAP`, were used to log significant events for each of these features. These flags can be configured in the `kprintf.c` file by modifying the `dbflags` variable, which has a default value of 0. You can enable multiple flags at once by using the logical OR operator (`|`) between different flags.
 
 # TLB Management
 The code related to this section can be found at:

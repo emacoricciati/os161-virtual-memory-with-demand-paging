@@ -249,8 +249,8 @@ int as_define_stack(struct addrspace *as, vaddr_t *stackptr){
 
 
 void vm_bootstrap(void){
-	initSwapfile();
 	initPT();
+	initSwapfile();
 	initializeStatistics();
 }
 

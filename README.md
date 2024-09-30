@@ -231,7 +231,7 @@ The `pt_active` variable is used to check if the page table is currently active.
   - If found, it returns the physical address.
   - Otherwise, it searches for a free entry in the Page Table; if none are present, it selects a victim using `findVictim`.  
 In both cases, it loads a page from either the ELF or the swap file using `loadPage`, and it sets `VALBIT=1` and `IOBIT=1`.
-- **getFramePT**: It's called by `getFramePT`, receiving the `pid` of the process and the `vaddr`. It returns:
+- **getPAddressPT**: It's called by `getFramePT`, receiving the `pid` of the process and the `vaddr`. It returns:
   - `-1` if not found
   - `paddr` if found  
 It also sets `TLBBIT = 1` since the entry will be cached in the TLB.

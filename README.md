@@ -1,8 +1,8 @@
 # OS161-VIRTUAL MEMORY WITH DEMANDING PAGING
 
-This project, realized by [Emanuele Coricciati](https://github.com/emacoricciati), [Erika Astegiano](https://github.com/astegiano-erika) and [Giacomo Belluardo](https://github.com/giacomobelluardo), will take care of implementing virtual memory with on demand paging on OS161 and error handling for readonly segments and segmentation fault.
+This project, carried out by [Emanuele Coricciati](https://github.com/emacoricciati), [Erika Astegiano](https://github.com/astegiano-erika) and [Giacomo Belluardo](https://github.com/giacomobelluardo), focuses on implementing virtual memory with on-demand paging in OS161
 
-To use our version of OS161, it is recommended to increase `ramsize` to `2M` in the `sys161.conf` file due to the data structures used in the project. The swap file was implemented using the raw partition `LHD0.img`, resizing it to `9M`. You can change the size of the partition with the following command in the root folder:
+To use this version of OS161, it is recommended to increase `ramsize` to `2M` in the `sys161.conf` file due to the data structures used in the project. The swap file was implemented using the raw partition `LHD0.img`, resizing it to `9M`. You can change the size of the partition with the following command in the root folder:
 
 ```bash
 disk161 resize LHD0.img 9M
